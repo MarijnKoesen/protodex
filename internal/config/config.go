@@ -29,6 +29,11 @@ type Config struct {
 	MaxRequestBytes int64 `json:"max_request_bytes"`
 	// ShutdownTimeout bounds graceful shutdown.
 	ShutdownTimeout Duration `json:"shutdown_timeout"`
+	// TracingEnabled turns on OpenTelemetry tracing with an OTLP/HTTP exporter.
+	TracingEnabled bool `json:"tracing_enabled"`
+	// OTLPEndpoint is the OTLP/HTTP collector URL; empty uses the standard
+	// OTEL_EXPORTER_OTLP_* environment variables.
+	OTLPEndpoint string `json:"otlp_endpoint"`
 }
 
 // Duration is a time.Duration that (un)marshals as a string such as "30s".
@@ -75,6 +80,8 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 		logFormat = fs.String("log-format", "", "log format: text|json")
 		maxBytes  = fs.Int64("max-request-bytes", 0, "maximum request body size in bytes")
 		shutdown  = fs.Duration("shutdown-timeout", 0, "graceful shutdown timeout")
+		tracing   = fs.Bool("tracing", false, "enable OpenTelemetry tracing (OTLP/HTTP)")
+		otlp      = fs.String("otlp-endpoint", "", "OTLP/HTTP collector URL")
 	)
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
@@ -113,6 +120,12 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 	if set["shutdown-timeout"] {
 		cfg.ShutdownTimeout = Duration(*shutdown)
 	}
+	if set["tracing"] {
+		cfg.TracingEnabled = *tracing
+	}
+	if set["otlp-endpoint"] {
+		cfg.OTLPEndpoint = *otlp
+	}
 
 	return cfg, cfg.Validate()
 }
@@ -140,6 +153,16 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 			return fmt.Errorf("PROTODEX_SHUTDOWN_TIMEOUT: %w", err)
 		}
 		cfg.ShutdownTimeout = Duration(d)
+	}
+	if v := getenv("PROTODEX_TRACING_ENABLED"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("PROTODEX_TRACING_ENABLED: %w", err)
+		}
+		cfg.TracingEnabled = b
+	}
+	if v := getenv("PROTODEX_OTLP_ENDPOINT"); v != "" {
+		cfg.OTLPEndpoint = v
 	}
 	return nil
 }
