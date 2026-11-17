@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -94,5 +95,57 @@ func TestSymlinkAliasLockRefused(t *testing.T) {
 	}
 	if _, err := Open(link); !errors.Is(err, ErrLocked) {
 		t.Fatalf("Open via symlink error = %v, want ErrLocked", err)
+	}
+}
+
+func TestSymlinkedDirLockRefusedBeforeFileExists(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "dirlink")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	s := open(t, filepath.Join(real, "p.db"))
+	defer func() { _ = s.Close() }()
+	if _, err := Open(filepath.Join(link, "p.db")); !errors.Is(err, ErrLocked) {
+		t.Fatalf("open via symlinked dir: err = %v, want ErrLocked", err)
+	}
+}
+
+// TestHelperHoldsDB runs as a separate process for TestSecondProcessRefused.
+func TestHelperHoldsDB(t *testing.T) {
+	path := os.Getenv("PROTODEX_TEST_HOLD_DB")
+	if path == "" {
+		t.Skip("helper process only")
+	}
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	_, _ = os.Stdout.WriteString("ready\n")
+	_, _ = os.Stdin.Read(make([]byte, 1)) // hold until the parent closes stdin
+}
+
+func TestSecondProcessRefused(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "p.db")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperHoldsDB$") //nolint:gosec // re-exec of the test binary
+	cmd.Env = append(os.Environ(), "PROTODEX_TEST_HOLD_DB="+path)
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = in.Close(); _ = cmd.Wait() }()
+	if _, err := out.Read(make([]byte, 64)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(path); !errors.Is(err, ErrLocked) {
+		t.Fatalf("open while another process holds the db: err = %v, want ErrLocked", err)
 	}
 }
