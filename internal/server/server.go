@@ -21,6 +21,7 @@ import (
 	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/blob"
 	"github.com/marijnkoesen/protodex/internal/config"
+	"github.com/marijnkoesen/protodex/internal/fdset"
 	"github.com/marijnkoesen/protodex/internal/observability"
 	"github.com/marijnkoesen/protodex/internal/oidcauth"
 	"github.com/marijnkoesen/protodex/internal/store"
@@ -31,8 +32,9 @@ import (
 // plus /healthz, /readyz and /metrics. Request bodies are capped at maxRequestBytes.
 //
 // Without WithStore no authentication is performed and the TokenService,
-// owner, module, label, commit and upload services stay unimplemented
-// (UploadService also needs WithBlobs).
+// owner, module, label, commit, graph, resource, upload, download and
+// file-descriptor-set services stay unimplemented (the last three also need
+// WithBlobs).
 func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observability, options ...Option) http.Handler {
 	var o serverOptions
 	for _, f := range options {
@@ -54,6 +56,7 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 		),
 	}
 
+	content := contentReader{blobs: o.blobs, obs: obs}
 	mux := http.NewServeMux()
 	for _, reg := range []func() (string, http.Handler){
 		func() (string, http.Handler) {
@@ -63,13 +66,22 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 			return modulev1connect.NewCommitServiceHandler(&commitService{st: o.store}, opts...)
 		},
 		func() (string, http.Handler) {
-			return modulev1connect.NewDownloadServiceHandler(modulev1connect.UnimplementedDownloadServiceHandler{}, opts...)
+			if o.store == nil || o.blobs == nil {
+				return modulev1connect.NewDownloadServiceHandler(modulev1connect.UnimplementedDownloadServiceHandler{}, opts...)
+			}
+			return modulev1connect.NewDownloadServiceHandler(&downloadService{st: o.store, content: content}, opts...)
 		},
 		func() (string, http.Handler) {
-			return modulev1connect.NewFileDescriptorSetServiceHandler(modulev1connect.UnimplementedFileDescriptorSetServiceHandler{}, opts...)
+			if o.store == nil || o.blobs == nil {
+				return modulev1connect.NewFileDescriptorSetServiceHandler(modulev1connect.UnimplementedFileDescriptorSetServiceHandler{}, opts...)
+			}
+			return modulev1connect.NewFileDescriptorSetServiceHandler(&fileDescriptorSetService{st: o.store, content: content, cache: fdset.NewCache(defaultDescriptorCacheBytes)}, opts...)
 		},
 		func() (string, http.Handler) {
-			return modulev1connect.NewGraphServiceHandler(modulev1connect.UnimplementedGraphServiceHandler{}, opts...)
+			if o.store == nil {
+				return modulev1connect.NewGraphServiceHandler(modulev1connect.UnimplementedGraphServiceHandler{}, opts...)
+			}
+			return modulev1connect.NewGraphServiceHandler(&graphService{st: o.store}, opts...)
 		},
 		func() (string, http.Handler) {
 			if o.store == nil {
@@ -84,7 +96,10 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 			return modulev1connect.NewModuleServiceHandler(&moduleService{st: o.store}, opts...)
 		},
 		func() (string, http.Handler) {
-			return modulev1connect.NewResourceServiceHandler(modulev1connect.UnimplementedResourceServiceHandler{}, opts...)
+			if o.store == nil {
+				return modulev1connect.NewResourceServiceHandler(modulev1connect.UnimplementedResourceServiceHandler{}, opts...)
+			}
+			return modulev1connect.NewResourceServiceHandler(&resourceService{st: o.store}, opts...)
 		},
 		func() (string, http.Handler) {
 			if o.store == nil || o.blobs == nil {

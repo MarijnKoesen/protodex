@@ -61,19 +61,21 @@ const (
 // names a module with no default label yet, the commit it points at.
 type resolvedRef struct {
 	kind   refKind
+	owner  store.Owner
 	mod    store.Module
+	label  *labeled // set for refLabel
 	commit *store.Commit
 }
 
 // labelRef resolves a label to the commit it points at.
 func labelRef(ctx context.Context, q store.Querier, l labeled) (resolvedRef, error) {
 	c, err := getCommit(ctx, q, l.mod, l.label.CommitID)
-	return resolvedRef{refLabel, l.mod, &c}, err
+	return resolvedRef{kind: refLabel, owner: l.owner, mod: l.mod, label: &l, commit: &c}, err
 }
 
 // moduleRef resolves a module to its default label's commit, if any.
 func moduleRef(ctx context.Context, q store.Querier, o store.Owner, m store.Module) (resolvedRef, error) {
-	r := resolvedRef{kind: refModule, mod: m}
+	r := resolvedRef{kind: refModule, owner: o, mod: m}
 	l, err := getLabel(ctx, q, o, m, m.DefaultLabel)
 	if connect.CodeOf(err) == connect.CodeNotFound {
 		return r, nil
@@ -93,11 +95,11 @@ func resolveRef(ctx context.Context, q store.Querier, ref *modulev1.ResourceRef)
 		c, err := q.GetCommitByID(ctx, id)
 		switch {
 		case err == nil:
-			_, m, err := getModuleByID(ctx, q, c.ModuleID)
+			o, m, err := getModuleByID(ctx, q, c.ModuleID)
 			if connect.CodeOf(err) == connect.CodeNotFound {
 				return resolvedRef{}, commitNotFound(id)
 			}
-			return resolvedRef{refCommit, m, &c}, err
+			return resolvedRef{kind: refCommit, owner: o, mod: m, commit: &c}, err
 		case !errors.Is(err, store.ErrNotFound):
 			return resolvedRef{}, internalErr(err)
 		}
@@ -130,7 +132,7 @@ func resolveRef(ctx context.Context, q store.Querier, ref *modulev1.ResourceRef)
 	if name := n.GetRef(); name != "" {
 		switch c, err := q.GetCommit(ctx, m.ID, name); {
 		case err == nil:
-			return resolvedRef{refCommit, m, &c}, nil
+			return resolvedRef{kind: refCommit, owner: o, mod: m, commit: &c}, nil
 		case !errors.Is(err, store.ErrNotFound):
 			return resolvedRef{}, internalErr(err)
 		}
