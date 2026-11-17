@@ -12,8 +12,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -37,6 +39,96 @@ type Config struct {
 	// OTLPEndpoint is the OTLP/HTTP collector URL; empty uses the standard
 	// OTEL_EXPORTER_OTLP_* environment variables.
 	OTLPEndpoint string `json:"otlp_endpoint"`
+	// OIDC configures user login through an OpenID Connect provider. It is
+	// disabled while OIDC.Issuer is empty.
+	OIDC OIDC `json:"oidc"`
+}
+
+// OIDC configures the OpenID Connect authorization-code login (Dex, Keycloak,
+// Entra ID, Google, ...). The client secret is best supplied through
+// PROTODEX_OIDC_CLIENT_SECRET rather than the config file.
+type OIDC struct {
+	// Issuer is the provider's issuer URL (discovery is at
+	// Issuer/.well-known/openid-configuration).
+	Issuer       string `json:"issuer"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	// RedirectURL is the externally visible URL of /auth/callback, as
+	// registered with the provider.
+	RedirectURL string `json:"redirect_url"`
+	// Scopes are requested in addition to "openid". Default: profile, email
+	// and (for group mapping) groups.
+	Scopes []string `json:"scopes"`
+	// AllowedDomains restricts login to verified e-mail addresses in these
+	// domains. Empty allows any user the provider authenticates.
+	AllowedDomains []string `json:"allowed_domains"`
+	// UsernameClaim names the claim a new user's name is derived from.
+	// Default: preferred_username, falling back to the e-mail local part.
+	UsernameClaim string `json:"username_claim"`
+	// GroupsClaim names the claim holding the user's groups. Default "groups".
+	GroupsClaim string `json:"groups_claim"`
+	// GroupRoles maps a group to a role (viewer, member or admin). A user
+	// gets the highest role of their groups.
+	GroupRoles map[string]string `json:"group_roles"`
+	// DefaultRole applies when no group matches; empty rejects such users.
+	DefaultRole string `json:"default_role"`
+	// TokenTTL is the lifetime of personal access tokens minted at login.
+	// Default 720h (30 days).
+	TokenTTL Duration `json:"token_ttl"`
+}
+
+// Enabled reports whether OIDC login is configured.
+func (o OIDC) Enabled() bool { return o.Issuer != "" }
+
+// Roles in ascending order of privilege.
+const (
+	RoleViewer = "viewer"
+	RoleMember = "member"
+	RoleAdmin  = "admin"
+)
+
+// RoleRank orders roles; unknown roles rank 0.
+func RoleRank(r string) int {
+	switch r {
+	case RoleViewer:
+		return 1
+	case RoleMember:
+		return 2
+	case RoleAdmin:
+		return 3
+	}
+	return 0
+}
+
+func (o OIDC) validate() []error {
+	if !o.Enabled() {
+		return nil
+	}
+	var errs []error
+	if u, err := url.Parse(o.Issuer); err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		errs = append(errs, fmt.Errorf("oidc.issuer %q must be an http(s) URL", o.Issuer))
+	}
+	if o.ClientID == "" {
+		errs = append(errs, errors.New("oidc.client_id is required"))
+	}
+	if u, err := url.Parse(o.RedirectURL); err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		errs = append(errs, fmt.Errorf("oidc.redirect_url %q must be an absolute http(s) URL", o.RedirectURL))
+	}
+	for g, r := range o.GroupRoles {
+		if RoleRank(r) == 0 {
+			errs = append(errs, fmt.Errorf("oidc.group_roles[%q]: unknown role %q (want viewer, member or admin)", g, r))
+		}
+	}
+	if o.DefaultRole != "" && RoleRank(o.DefaultRole) == 0 {
+		errs = append(errs, fmt.Errorf("oidc.default_role: unknown role %q", o.DefaultRole))
+	}
+	if o.DefaultRole == "" && len(o.GroupRoles) == 0 {
+		errs = append(errs, errors.New("oidc: set group_roles and/or default_role, otherwise nobody can log in"))
+	}
+	if o.TokenTTL < 0 {
+		errs = append(errs, errors.New("oidc.token_ttl must not be negative"))
+	}
+	return errs
 }
 
 // Duration is a time.Duration that (un)marshals as a string such as "30s".
@@ -64,6 +156,11 @@ func Default() Config {
 		LogFormat:       "text",
 		MaxRequestBytes: 64 << 20,
 		ShutdownTimeout: Duration(30 * time.Second),
+		OIDC: OIDC{
+			Scopes:      []string{"profile", "email", "groups"},
+			GroupsClaim: "groups",
+			TokenTTL:    Duration(720 * time.Hour),
+		},
 	}
 }
 
@@ -174,6 +271,21 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	if v := getenv("PROTODEX_OTLP_ENDPOINT"); v != "" {
 		cfg.OTLPEndpoint = v
 	}
+	if v := getenv("PROTODEX_OIDC_ISSUER"); v != "" {
+		cfg.OIDC.Issuer = v
+	}
+	if v := getenv("PROTODEX_OIDC_CLIENT_ID"); v != "" {
+		cfg.OIDC.ClientID = v
+	}
+	if v := getenv("PROTODEX_OIDC_CLIENT_SECRET"); v != "" {
+		cfg.OIDC.ClientSecret = v
+	}
+	if v := getenv("PROTODEX_OIDC_REDIRECT_URL"); v != "" {
+		cfg.OIDC.RedirectURL = v
+	}
+	if v := getenv("PROTODEX_OIDC_ALLOWED_DOMAINS"); v != "" {
+		cfg.OIDC.AllowedDomains = strings.Split(v, ",")
+	}
 	return nil
 }
 
@@ -198,6 +310,7 @@ func (c Config) Validate() error {
 	if err := lvl.UnmarshalText([]byte(c.LogLevel)); err != nil {
 		errs = append(errs, fmt.Errorf("log_level %q: %w", c.LogLevel, err))
 	}
+	errs = append(errs, c.OIDC.validate()...)
 	return errors.Join(errs...)
 }
 

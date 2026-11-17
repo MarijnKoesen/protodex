@@ -298,3 +298,28 @@ func (q *queries) TouchToken(ctx context.Context, id string, at time.Time) error
 func (q *queries) DeleteToken(ctx context.Context, id string) error {
 	return existing(q.w.DeleteToken(ctx, id))
 }
+
+// --- identities ---
+
+func identityFrom(i db.Identity) store.Identity {
+	return store.Identity{Issuer: i.Issuer, Subject: i.Subject, OwnerID: i.OwnerID, Email: i.Email, Role: i.Role,
+		CreatedAt: fromTS(i.CreatedAt), LastLoginAt: fromTS(i.LastLoginAt)}
+}
+
+func (q *queries) CreateIdentity(ctx context.Context, i store.Identity) (store.Identity, error) {
+	i.CreatedAt = ts(i.CreatedAt)
+	i.LastLoginAt = ts(i.LastLoginAt)
+	err := q.w.CreateIdentity(ctx, db.CreateIdentityParams{Issuer: i.Issuer, Subject: i.Subject, OwnerID: i.OwnerID,
+		Email: i.Email, Role: i.Role, CreatedAt: i.CreatedAt.UnixMicro(), LastLoginAt: i.LastLoginAt.UnixMicro()})
+	return i, mapErr(err)
+}
+
+func (q *queries) GetIdentity(ctx context.Context, issuer, subject string) (store.Identity, error) {
+	i, err := q.r.GetIdentity(ctx, db.GetIdentityParams{Issuer: issuer, Subject: subject})
+	return identityFrom(i), mapErr(err)
+}
+
+func (q *queries) UpdateIdentity(ctx context.Context, i store.Identity) error {
+	return existing(q.w.UpdateIdentity(ctx, db.UpdateIdentityParams{Email: i.Email, Role: i.Role,
+		LastLoginAt: ts(i.LastLoginAt).UnixMicro(), Issuer: i.Issuer, Subject: i.Subject}))
+}

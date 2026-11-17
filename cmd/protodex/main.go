@@ -17,6 +17,7 @@ import (
 
 	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/config"
+	"github.com/marijnkoesen/protodex/internal/oidcauth"
 	"github.com/marijnkoesen/protodex/internal/server"
 	"github.com/marijnkoesen/protodex/internal/store/sqlite"
 	"github.com/marijnkoesen/protodex/internal/version"
@@ -63,6 +64,11 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			}
 			defer func() { _ = st.Close() }()
 			opts = append(opts, server.WithStore(st))
+			if cfg.OIDC.Enabled() {
+				opts = append(opts, server.WithOIDC(oidcauth.New(cfg.OIDC, st, cfg.Logger(stderr))))
+			}
+		} else if cfg.OIDC.Enabled() {
+			return errors.New("oidc requires db_path: logins are stored in the database")
 		}
 		ln, err := net.Listen("tcp", cfg.Addr)
 		if err != nil {

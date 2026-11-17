@@ -55,8 +55,10 @@ func TestMigrateUpDownIdempotent(t *testing.T) {
 	if tableCount(t, s) != 1 {
 		t.Fatal("owners table missing after up")
 	}
-	if err := s.Rollback(ctx); err != nil {
-		t.Fatal(err)
+	for range 2 { // one step per migration (init, identities)
+		if err := s.Rollback(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if tableCount(t, s) != 0 {
 		t.Fatal("owners table present after down")

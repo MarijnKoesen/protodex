@@ -89,6 +89,18 @@ type Token struct {
 	LastUsedAt *time.Time
 }
 
+// Identity links an external (OIDC) subject to a user owner. Role is the
+// access role last derived from the IdP's claims.
+type Identity struct {
+	Issuer      string
+	Subject     string
+	OwnerID     string
+	Email       string
+	Role        string
+	CreatedAt   time.Time
+	LastLoginAt time.Time
+}
+
 // Querier is the set of data operations, available both on a Store and
 // inside a transaction. Get/List methods return ErrNotFound for missing
 // single rows; creates return ErrConflict on duplicates or dangling
@@ -127,6 +139,11 @@ type Querier interface {
 	ListTokens(ctx context.Context, ownerID string) ([]Token, error)
 	TouchToken(ctx context.Context, id string, at time.Time) error
 	DeleteToken(ctx context.Context, id string) error
+
+	CreateIdentity(ctx context.Context, i Identity) (Identity, error)
+	GetIdentity(ctx context.Context, issuer, subject string) (Identity, error)
+	// UpdateIdentity sets Email, Role and LastLoginAt of an existing identity.
+	UpdateIdentity(ctx context.Context, i Identity) error
 }
 
 // Store is a metadata backend.
