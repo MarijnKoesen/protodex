@@ -1,0 +1,103 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "protodex.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "protodex.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "protodex.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    {{- if not $np.egress.allowAll }}
+    - Egress
+    {{- end }}
+  ingress:
+    - ports:
+        - port: http
+          protocol: TCP
+      {{- with $np.ingressFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- if and .Values.litestream.enabled .Values.litestream.metrics.enabled }}
+    - ports:
+        - port: ls-metrics
+          protocol: TCP
+      {{- with $np.metricsFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- end }}
+  {{- if not $np.egress.allowAll }}
+  egress:
+    # DNS
+    - ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    {{- if .Values.seaweedfs.enabled }}
+    # Bundled SeaweedFS (S3 gateway + weed shell for bucket-init).
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "protodex.seaweedfs.selectorLabels" . | nindent 14 }}
+      ports:
+        - { port: 8333, protocol: TCP }
+        - { port: 9333, protocol: TCP }
+        - { port: 19333, protocol: TCP }
+        - { port: 8888, protocol: TCP }
+        - { port: 18888, protocol: TCP }
+    {{- else }}
+    # S3 (Litestream replica, blob store)
+    - ports:
+        {{- range $np.egress.s3Ports }}
+        - { port: {{ . }}, protocol: TCP }
+        {{- end }}
+      {{- with $np.egress.s3To }}
+      to:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- end }}
+    {{- with $np.egress.extraRules }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+{{- if .Values.seaweedfs.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "protodex.seaweedfs.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "protodex.labels" . | nindent 4 }}
+    app.kubernetes.io/component: seaweedfs
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "protodex.seaweedfs.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Only protodex (and SeaweedFS talking to itself via its pod IP).
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "protodex.selectorLabels" . | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "protodex.seaweedfs.selectorLabels" . | nindent 14 }}
+  egress:
+    - ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "protodex.seaweedfs.selectorLabels" . | nindent 14 }}
+{{- end }}
+{{- end }}

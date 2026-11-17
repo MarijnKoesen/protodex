@@ -6,7 +6,7 @@ Deployment assets for Protodex:
 |-------------------------|---------------------------------------------------|
 | `docker-compose.yaml`   | Local quickstart: protodex + SeaweedFS + SQLite volume |
 | `.env.example`          | Documented settings / dev defaults for the quickstart |
-| `charts/<name>/`        | Helm chart (not yet; CI runs `helm lint` + `kubeconform` once a `Chart.yaml` exists) |
+| `helm/protodex/`        | Helm chart: SQLite on a PVC + Litestream to S3, optional bundled SeaweedFS ([README](helm/protodex/README.md)) |
 
 ## Quickstart (docker compose)
 
@@ -71,6 +71,23 @@ The compose file uses `chrislusf/seaweedfs:latest` (the same image CI runs the
 S3 contract tests against). Pin a release tag for reproducible deployments by
 setting `SEAWEEDFS_IMAGE` in `deploy/.env`.
 
+## Kubernetes (Helm)
+
+[`helm/protodex/`](helm/protodex/README.md) deploys Protodex in SQLite mode: one
+replica (`strategy: Recreate`, so rollouts have a short downtime) writing
+SQLite on a `ReadWriteOnce` block volume, a Litestream sidecar replicating it
+to S3, and a restore-on-start init container for empty volumes. It includes
+Ingress / Gateway API HTTPRoute, NetworkPolicy, an optional ServiceMonitor and
+an optional bundled SeaweedFS (the same S3 server as the compose quickstart).
+Releases publish it as a signed OCI artifact:
+
+```sh
+helm install protodex oci://ghcr.io/marijnkoesen/charts/protodex --version X.Y.Z -n protodex -f my-values.yaml
+```
+
+See the chart README for install, upgrades, the restore drill and why the
+database must not live on NFS/EFS.
+
 ## Container image
 
 `ghcr.io/marijnkoesen/protodex` (built from the repository `Dockerfile`):
@@ -97,7 +114,10 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`:
 2. SBOMs: BuildKit SBOM + SLSA provenance in the image index, and a syft SPDX
    SBOM attached as a cosign attestation.
 3. Cosign keyless signature and a GitHub build-provenance attestation.
-4. GitHub Release with generated changelog, cross-compiled binaries
+4. Helm chart packaged with the tag version, pushed to
+   `oci://ghcr.io/marijnkoesen/charts/protodex`, cosign-signed and with a
+   build-provenance attestation.
+5. GitHub Release with generated changelog, cross-compiled binaries
    (linux/darwin/windows × amd64/arm64), `SHA256SUMS` (with provenance
    attestation) and a source SBOM.
 

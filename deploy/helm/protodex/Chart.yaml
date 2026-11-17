@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: v2
+name: protodex
+description: Self-hostable Protobuf schema registry compatible with the buf CLI (SQLite on a PVC, replicated to S3 with Litestream).
+type: application
+# The release workflow overwrites version/appVersion from the git tag
+# (helm package --version X.Y.Z --app-version vX.Y.Z).
+version: 0.1.0
+appVersion: "latest"
+home: https://github.com/marijnkoesen/protodex
+sources:
+  - https://github.com/marijnkoesen/protodex
+keywords:
+  - protobuf
+  - buf
+  - schema-registry
+  - grpc
+maintainers:
+  - name: protodex contributors
+    url: https://github.com/marijnkoesen/protodex
+annotations:
+  artifacthub.io/license: Apache-2.0

@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: Apache-2.0
+# CI: every optional feature on (bundled SeaweedFS, ingress, HTTPRoute,
+# ServiceMonitor, classic sidecar). Rendered by `helm template` + kubeconform.
+image:
+  tag: v0.1.0
+s3:
+  accessKeyId: ci-access-key
+  secretAccessKey: ci-secret-key
+auth:
+  bootstrapAdminToken: ci-admin-token
+seaweedfs:
+  enabled: true
+  image:
+    tag: "3.97"
+litestream:
+  nativeSidecar: false
+config:
+  tracing:
+    enabled: true
+    otlpEndpoint: http://otel-collector.observability:4318
+ingress:
+  enabled: true
+  className: nginx
+  tls:
+    - secretName: protodex-tls
+      hosts: [protodex.example.com]
+httpRoute:
+  enabled: true
+  parentRefs:
+    - name: gateway
+      namespace: gateway-system
+      sectionName: https
+  timeouts:
+    request: 300s
+metrics:
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: prometheus
+networkPolicy:
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+  egress:
+    extraRules:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: observability
+        ports:
+          - port: 4318
+            protocol: TCP
+priorityClassName: high-priority
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: protodex

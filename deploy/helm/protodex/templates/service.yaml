@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "protodex.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "protodex.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "protodex.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      # protodex serves HTTP/1.1 and h2c (Connect, gRPC, gRPC-Web) on one port;
+      # Gateway API implementations use HTTP/2 cleartext to the backend.
+      appProtocol: kubernetes.io/h2c
+    {{- if and .Values.litestream.enabled .Values.litestream.metrics.enabled }}
+    - name: ls-metrics
+      port: {{ .Values.litestream.metrics.port }}
+      targetPort: ls-metrics
+      protocol: TCP
+    {{- end }}
