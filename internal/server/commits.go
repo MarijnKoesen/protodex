@@ -26,6 +26,8 @@ func commitProto(m store.Module, c store.Commit) *modulev1.Commit {
 		CreateTime: timestamppb.New(c.CreatedAt),
 		OwnerId:    m.OwnerID,
 		ModuleId:   m.ID,
+
+		SourceControlUrl: c.SourceControlURL,
 	}
 	if v, err := b5.Bytes(c.Digest); err == nil {
 		p.Digest = &modulev1.Digest{Type: modulev1.DigestType_DIGEST_TYPE_B5, Value: v}

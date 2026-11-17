@@ -267,7 +267,8 @@ func (q *queries) DeleteModule(ctx context.Context, id string) error {
 // --- commits ---
 
 func commitFrom(c db.Commit) store.Commit {
-	return store.Commit{ID: c.ID, ModuleID: c.ModuleID, Digest: c.Digest, CreatedAt: fromTS(c.CreatedAt)}
+	return store.Commit{ID: c.ID, ModuleID: c.ModuleID, Digest: c.Digest, CreatedAt: fromTS(c.CreatedAt),
+		SourceControlURL: c.SourceControlUrl}
 }
 
 func (q *queries) CreateCommit(ctx context.Context, c store.Commit) (store.Commit, error) {
@@ -276,7 +277,7 @@ func (q *queries) CreateCommit(ctx context.Context, c store.Commit) (store.Commi
 	}
 	c.CreatedAt = ts(c.CreatedAt)
 	err := q.w.CreateCommit(ctx, db.CreateCommitParams{ID: c.ID, ModuleID: c.ModuleID, Digest: c.Digest,
-		CreatedAt: c.CreatedAt.UnixMicro()})
+		CreatedAt: c.CreatedAt.UnixMicro(), SourceControlUrl: c.SourceControlURL})
 	return c, mapErr(err)
 }
 
@@ -293,6 +294,29 @@ func (q *queries) GetCommitByID(ctx context.Context, id string) (store.Commit, e
 func (q *queries) ListCommits(ctx context.Context, moduleID string) ([]store.Commit, error) {
 	rows, err := q.r.ListCommits(ctx, moduleID)
 	return mapAll(rows, err, commitFrom)
+}
+
+// --- mirror provenance ---
+
+func mirrorCommitFrom(m db.MirrorCommit) store.MirrorCommit {
+	return store.MirrorCommit{CommitID: m.CommitID, UpstreamURL: m.UpstreamUrl, UpstreamRef: m.UpstreamRef,
+		UpstreamCommit: m.UpstreamCommit, License: m.License, ImportedAt: fromTS(m.ImportedAt)}
+}
+
+func (q *queries) PutMirrorCommit(ctx context.Context, m store.MirrorCommit) error {
+	return mapErr(q.w.PutMirrorCommit(ctx, db.PutMirrorCommitParams{CommitID: m.CommitID, UpstreamUrl: m.UpstreamURL,
+		UpstreamRef: m.UpstreamRef, UpstreamCommit: m.UpstreamCommit, License: m.License,
+		ImportedAt: ts(m.ImportedAt).UnixMicro()}))
+}
+
+func (q *queries) GetMirrorCommit(ctx context.Context, commitID string) (store.MirrorCommit, error) {
+	m, err := q.r.GetMirrorCommit(ctx, commitID)
+	return mirrorCommitFrom(m), mapErr(err)
+}
+
+func (q *queries) ListMirrorCommits(ctx context.Context, moduleID string) ([]store.MirrorCommit, error) {
+	rows, err := q.r.ListMirrorCommits(ctx, moduleID)
+	return mapAll(rows, err, mirrorCommitFrom)
 }
 
 // --- labels ---

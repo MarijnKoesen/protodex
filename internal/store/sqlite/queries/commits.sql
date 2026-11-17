@@ -1,5 +1,5 @@
 -- name: CreateCommit :exec
-INSERT INTO commits (id, module_id, digest, created_at) VALUES (?, ?, ?, ?);
+INSERT INTO commits (id, module_id, digest, created_at, source_control_url) VALUES (?, ?, ?, ?, ?);
 
 -- name: GetCommit :one
 SELECT * FROM commits WHERE module_id = ? AND id = ?;

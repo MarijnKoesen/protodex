@@ -1,0 +1,26 @@
+# Mirror configuration for `protodex mirror run`. See docs/mirror.md.
+# Every upstream is pinned to a tag or full commit hash, and its license is
+# reviewed in docs/mirror-licenses.md before it is listed here.
+upstreams:
+  # google/api/annotations.proto, google/rpc/*, ... Not tagged upstream: pinned
+  # to a commit (reviewed 2026-11-17).
+  - name: googleapis/googleapis
+    url: https://github.com/googleapis/googleapis.git
+    ref: 82983a28bdca6e289b1e283fa3aa309929509ba4
+    license: Apache-2.0
+    include: [google]
+
+  # buf/validate/validate.proto (imports only google/protobuf, which buf
+  # provides itself).
+  - name: bufbuild/protovalidate
+    url: https://github.com/bufbuild/protovalidate.git
+    ref: v1.2.2
+    license: Apache-2.0
+    roots: [proto/protovalidate]
+
+  # protoc-gen-openapiv2/options/*.proto
+  - name: grpc-ecosystem/grpc-gateway
+    url: https://github.com/grpc-ecosystem/grpc-gateway.git
+    ref: v2.34.0
+    license: BSD-3-Clause
+    include: [protoc-gen-openapiv2]

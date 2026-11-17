@@ -36,14 +36,15 @@ func (q *Queries) AddCommitDep(ctx context.Context, arg AddCommitDepParams) erro
 }
 
 const createCommit = `-- name: CreateCommit :exec
-INSERT INTO commits (id, module_id, digest, created_at) VALUES (?, ?, ?, ?)
+INSERT INTO commits (id, module_id, digest, created_at, source_control_url) VALUES (?, ?, ?, ?, ?)
 `
 
 type CreateCommitParams struct {
-	ID        string
-	ModuleID  string
-	Digest    string
-	CreatedAt int64
+	ID               string
+	ModuleID         string
+	Digest           string
+	CreatedAt        int64
+	SourceControlUrl string
 }
 
 func (q *Queries) CreateCommit(ctx context.Context, arg CreateCommitParams) error {
@@ -52,12 +53,13 @@ func (q *Queries) CreateCommit(ctx context.Context, arg CreateCommitParams) erro
 		arg.ModuleID,
 		arg.Digest,
 		arg.CreatedAt,
+		arg.SourceControlUrl,
 	)
 	return err
 }
 
 const getCommit = `-- name: GetCommit :one
-SELECT id, module_id, digest, created_at FROM commits WHERE module_id = ? AND id = ?
+SELECT id, module_id, digest, created_at, source_control_url FROM commits WHERE module_id = ? AND id = ?
 `
 
 type GetCommitParams struct {
@@ -73,12 +75,13 @@ func (q *Queries) GetCommit(ctx context.Context, arg GetCommitParams) (Commit, e
 		&i.ModuleID,
 		&i.Digest,
 		&i.CreatedAt,
+		&i.SourceControlUrl,
 	)
 	return i, err
 }
 
 const getCommitByID = `-- name: GetCommitByID :one
-SELECT id, module_id, digest, created_at FROM commits WHERE id = ?
+SELECT id, module_id, digest, created_at, source_control_url FROM commits WHERE id = ?
 `
 
 func (q *Queries) GetCommitByID(ctx context.Context, id string) (Commit, error) {
@@ -89,6 +92,7 @@ func (q *Queries) GetCommitByID(ctx context.Context, id string) (Commit, error) 
 		&i.ModuleID,
 		&i.Digest,
 		&i.CreatedAt,
+		&i.SourceControlUrl,
 	)
 	return i, err
 }
@@ -129,7 +133,7 @@ func (q *Queries) ListCommitDeps(ctx context.Context, commitID string) ([]Commit
 }
 
 const listCommits = `-- name: ListCommits :many
-SELECT id, module_id, digest, created_at FROM commits WHERE module_id = ? ORDER BY created_at DESC, id DESC
+SELECT id, module_id, digest, created_at, source_control_url FROM commits WHERE module_id = ? ORDER BY created_at DESC, id DESC
 `
 
 func (q *Queries) ListCommits(ctx context.Context, moduleID string) ([]Commit, error) {
@@ -146,6 +150,7 @@ func (q *Queries) ListCommits(ctx context.Context, moduleID string) ([]Commit, e
 			&i.ModuleID,
 			&i.Digest,
 			&i.CreatedAt,
+			&i.SourceControlUrl,
 		); err != nil {
 			return nil, err
 		}
