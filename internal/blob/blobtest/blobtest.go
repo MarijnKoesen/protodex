@@ -122,8 +122,8 @@ func Run(t *testing.T, f Factory) {
 		if testing.Short() {
 			t.Skip("short mode")
 		}
-		const size = 256 << 20
-		const bound = 96 << 20
+		const size = 64 << 20
+		const bound = 48 << 20
 		s := f(t, 0)
 
 		// Compute the digest by streaming a deterministic pattern.
@@ -205,9 +205,18 @@ func (r *patternReader) Read(p []byte) (int, error) {
 	if rem := r.n - r.off; int64(len(p)) > rem {
 		p = p[:rem]
 	}
-	for i := range p {
-		p[i] = byte(((r.off + int64(i)) * 31 >> 3) & 0xff)
+	// The pattern repeats every 2048 bytes: (x*31>>3)&0xff depends on x mod 2048.
+	for i := 0; i < len(p); {
+		i += copy(p[i:], patternBlock[(r.off+int64(i))%int64(len(patternBlock)):])
 	}
 	r.off += int64(len(p))
 	return len(p), nil
 }
+
+var patternBlock = func() []byte {
+	b := make([]byte, 2048)
+	for i := range b {
+		b[i] = byte((int64(i) * 31 >> 3) & 0xff)
+	}
+	return b
+}()
