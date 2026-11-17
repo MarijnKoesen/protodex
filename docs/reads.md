@@ -45,6 +45,10 @@ and are not accepted.
   or commit it names.
 - **GraphService.GetGraph** returns the resolved commits, their transitive
   dependency commits (as recorded at push time) and the edges between them.
+  Commits are topologically ordered (a commit precedes its dependencies);
+  diamonds appear once, and different commits of one module are all
+  returned so the client (`buf dep update`) picks the version. A cycle in
+  stored data is `FailedPrecondition`.
   Only dependencies on this registry exist (see
   [open-questions.md](behavior-spec/open-questions.md)).
 - **FileDescriptorSetService.GetFileDescriptorSet** compiles the commit and
