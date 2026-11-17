@@ -76,6 +76,7 @@ CI runs the same Makefile targets you run locally:
 | `make licenses`        | dependency license check (go-licenses)                  |
 | `make vuln`            | `govulncheck`                                           |
 | `make docker`          | builds the container image locally                     |
+| `make conformance`     | buf CLI conformance suite ([docs/compatibility.md](docs/compatibility.md)); downloads pinned buf releases |
 
 `make tools` installs the pinned golangci-lint version.
 
