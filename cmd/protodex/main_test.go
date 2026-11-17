@@ -46,3 +46,21 @@ func TestServeRefusedWhenDBLocked(t *testing.T) {
 		t.Fatalf("serve error = %v, want ErrLocked", err)
 	}
 }
+
+func TestBootstrapCommand(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "b.db")
+	var out, errb bytes.Buffer
+	if err := bootstrap(context.Background(), []string{"-db", db}, func(string) string { return "" }, &out, &errb); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "pdx_") {
+		t.Fatalf("token not printed: %q", out.String())
+	}
+	out.Reset()
+	if err := bootstrap(context.Background(), []string{"-db", db}, func(string) string { return "" }, &out, &errb); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "pdx_") || !strings.Contains(out.String(), "already exists") {
+		t.Fatalf("second run: %q", out.String())
+	}
+}

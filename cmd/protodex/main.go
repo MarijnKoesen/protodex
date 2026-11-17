@@ -4,6 +4,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -14,6 +15,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/config"
 	"github.com/marijnkoesen/protodex/internal/server"
 	"github.com/marijnkoesen/protodex/internal/store/sqlite"
@@ -24,6 +26,7 @@ const usage = `usage: protodex <command> [flags]
 
 commands:
   serve      run the registry server
+  bootstrap  create the first admin user and print its initial token
   migrate    apply (or "down": roll back one) database migrations
   version    print the version
 `
@@ -50,6 +53,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
+		var opts []server.Option
 		if cfg.DBPath != "" {
 			// Holding the store open keeps the exclusive lock for the
 			// server's lifetime; a second server on the same DB is refused.
@@ -58,12 +62,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return fmt.Errorf("open database: %w", err)
 			}
 			defer func() { _ = st.Close() }()
+			opts = append(opts, server.WithStore(st))
 		}
 		ln, err := net.Listen("tcp", cfg.Addr)
 		if err != nil {
 			return err
 		}
-		return server.Serve(ctx, cfg, cfg.Logger(stderr), ln)
+		return server.Serve(ctx, cfg, cfg.Logger(stderr), ln, opts...)
+	case "bootstrap":
+		return bootstrap(ctx, args[1:], os.Getenv, stdout, stderr)
 	case "migrate":
 		return migrate(ctx, args[1:], os.Getenv, stdout, stderr)
 	case "version", "-version", "--version":
@@ -110,5 +117,44 @@ func migrate(ctx context.Context, args []string, getenv func(string) string, std
 		return fmt.Errorf("migrate %s: %w", direction, err)
 	}
 	_, err = fmt.Fprintf(stdout, "migrate %s: ok\n", direction)
+	return err
+}
+
+// bootstrap implements `protodex bootstrap [-db path] [-user name]`. It creates
+// the first user and an initial token (from PROTODEX_BOOTSTRAP_TOKEN, or newly
+// generated) if no user exists yet. A generated token is printed once to
+// stdout and never logged; a supplied one is not echoed.
+func bootstrap(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("bootstrap", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dbPath := fs.String("db", getenv("PROTODEX_DB_PATH"), "SQLite database path (env PROTODEX_DB_PATH)")
+	user := fs.String("user", cmp.Or(getenv("PROTODEX_BOOTSTRAP_USER"), "admin"), "admin user name (env PROTODEX_BOOTSTRAP_USER)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *dbPath == "" {
+		return errors.New("bootstrap: -db or PROTODEX_DB_PATH is required")
+	}
+	s, err := sqlite.Open(*dbPath)
+	if err != nil {
+		return fmt.Errorf("bootstrap: %w", err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.Migrate(ctx); err != nil {
+		return fmt.Errorf("bootstrap: %w", err)
+	}
+	supplied := getenv("PROTODEX_BOOTSTRAP_TOKEN")
+	secret, created, err := auth.Bootstrap(ctx, s, *user, supplied)
+	if err != nil {
+		return fmt.Errorf("bootstrap: %w", err)
+	}
+	switch {
+	case !created:
+		_, err = fmt.Fprintln(stdout, "bootstrap: a user already exists; nothing to do")
+	case supplied != "":
+		_, err = fmt.Fprintf(stdout, "bootstrap: created user %q with the token from PROTODEX_BOOTSTRAP_TOKEN\n", *user)
+	default:
+		_, err = fmt.Fprintf(stdout, "bootstrap: created user %q. Token (shown once, store it safely):\n%s\n", *user, secret)
+	}
 	return err
 }
