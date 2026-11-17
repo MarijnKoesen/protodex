@@ -60,7 +60,7 @@ func newAuthEnv(t *testing.T) authEnv {
 	pins := gc.NewPins()
 	ts := httptest.NewServer(server.Handler(slog.New(slog.DiscardHandler), 1<<20, observability.New(),
 		server.WithStore(st), server.WithBlobs(blobs), server.WithBlobLeases(pins),
-		server.WithUploadLimits(server.UploadLimits{MaxFiles: 5, MaxFileBytes: 1 << 10})))
+		server.WithUploadLimits(server.UploadLimits{MaxFiles: 5, MaxFileBytes: 1 << 10, MaxTotalBytes: 1500})))
 	t.Cleanup(ts.Close)
 	return authEnv{url: ts.URL, st: st, secret: secret, blobs: blobs, pins: pins}
 }

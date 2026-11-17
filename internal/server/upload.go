@@ -28,11 +28,15 @@ type UploadLimits struct {
 	MaxFiles int
 	// MaxFileBytes is the maximum size of one file (default 10 MiB).
 	MaxFileBytes int64
+	// MaxTotalBytes is the maximum total file bytes of one Upload request
+	// across all its modules (default 64 MiB).
+	MaxTotalBytes int64
 }
 
 const (
 	defaultMaxFiles     = 5000
 	defaultMaxFileBytes = 10 << 20
+	defaultMaxPushBytes = 64 << 20
 )
 
 func (l UploadLimits) withDefaults() UploadLimits {
@@ -41,6 +45,9 @@ func (l UploadLimits) withDefaults() UploadLimits {
 	}
 	if l.MaxFileBytes <= 0 {
 		l.MaxFileBytes = defaultMaxFileBytes
+	}
+	if l.MaxTotalBytes <= 0 {
+		l.MaxTotalBytes = defaultMaxPushBytes
 	}
 	return l
 }
@@ -215,9 +222,17 @@ func (s *uploadService) Upload(ctx context.Context, req *connect.Request[modulev
 	}
 	msg := req.Msg
 	files := make([][]b5.File, len(msg.GetContents()))
+	var total int64
 	for i, c := range msg.GetContents() {
 		if files[i], err = s.validateFiles(c.GetFiles()); err != nil {
 			return nil, err
+		}
+		for _, f := range files[i] {
+			total += int64(len(f.Content))
+		}
+		if total > s.limits.MaxTotalBytes {
+			return nil, connect.NewError(connect.CodeInvalidArgument,
+				fmt.Errorf("push is larger than %d bytes", s.limits.MaxTotalBytes))
 		}
 	}
 	// Reject bad pushes before storing anything.

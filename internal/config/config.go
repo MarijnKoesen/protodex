@@ -39,6 +39,11 @@ type Config struct {
 	// the defaults (5000 files, 10 MiB per file).
 	MaxPushFiles     int   `json:"max_push_files"`
 	MaxPushFileBytes int64 `json:"max_push_file_bytes"`
+	// MaxPushBytes bounds the total file bytes of one Upload request; zero
+	// selects the default (64 MiB).
+	MaxPushBytes int64 `json:"max_push_bytes"`
+	// RateLimit configures per-IP and per-token request rate limits.
+	RateLimit RateLimit `json:"rate_limit"`
 	// GCInterval is how often unreferenced blobs are garbage-collected
 	// (only with db_path). "0s" disables the collector. Default 1h.
 	GCInterval Duration `json:"gc_interval"`
@@ -58,6 +63,23 @@ type Config struct {
 	// OIDC configures user login through an OpenID Connect provider. It is
 	// disabled while OIDC.Issuer is empty.
 	OIDC OIDC `json:"oidc"`
+}
+
+// RateLimit configures request rate limiting (token buckets, per process).
+// A rate of 0 disables that limit.
+type RateLimit struct {
+	// IPRate and IPBurst limit all requests per client IP (IPv6: per /64),
+	// including anonymous reads. Defaults: 50 requests/s, burst 200.
+	IPRate  float64 `json:"ip_rate"`
+	IPBurst int     `json:"ip_burst"`
+	// TokenRate and TokenBurst limit requests per bearer token.
+	// Defaults: 100 requests/s, burst 300.
+	TokenRate  float64 `json:"token_rate"`
+	TokenBurst int     `json:"token_burst"`
+	// TrustForwardedFor takes the client IP from the last X-Forwarded-For
+	// entry. Enable only behind a reverse proxy that sets the header;
+	// otherwise clients could spoof it.
+	TrustForwardedFor bool `json:"trust_forwarded_for"`
 }
 
 // OIDC configures the OpenID Connect authorization-code login (Dex, Keycloak,
@@ -172,6 +194,7 @@ func Default() Config {
 		LogFormat:       "text",
 		MaxRequestBytes: 64 << 20,
 		ShutdownTimeout: Duration(30 * time.Second),
+		RateLimit:       RateLimit{IPRate: 50, IPBurst: 200, TokenRate: 100, TokenBurst: 300},
 		GCInterval:      Duration(time.Hour),
 		GCGracePeriod:   Duration(24 * time.Hour),
 		OIDC: OIDC{
@@ -294,6 +317,32 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 			*e.dst = Duration(d)
 		}
 	}
+	for _, e := range []struct {
+		name string
+		dst  *float64
+	}{{"PROTODEX_RATE_LIMIT_IP_RATE", &cfg.RateLimit.IPRate}, {"PROTODEX_RATE_LIMIT_TOKEN_RATE", &cfg.RateLimit.TokenRate}} {
+		if v := getenv(e.name); v != "" {
+			f, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				return fmt.Errorf("%s: %w", e.name, err)
+			}
+			*e.dst = f
+		}
+	}
+	if v := getenv("PROTODEX_RATE_LIMIT_TRUST_FORWARDED_FOR"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("PROTODEX_RATE_LIMIT_TRUST_FORWARDED_FOR: %w", err)
+		}
+		cfg.RateLimit.TrustForwardedFor = b
+	}
+	if v := getenv("PROTODEX_MAX_PUSH_BYTES"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("PROTODEX_MAX_PUSH_BYTES: %w", err)
+		}
+		cfg.MaxPushBytes = n
+	}
 	if v := getenv("PROTODEX_GC_DRY_RUN"); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
@@ -340,6 +389,12 @@ func (c Config) Validate() error {
 	}
 	if c.MaxPushFiles < 0 || c.MaxPushFileBytes < 0 {
 		errs = append(errs, errors.New("max_push_files and max_push_file_bytes must not be negative"))
+	}
+	if c.MaxPushBytes < 0 {
+		errs = append(errs, errors.New("max_push_bytes must not be negative"))
+	}
+	if r := c.RateLimit; r.IPRate < 0 || r.IPBurst < 0 || r.TokenRate < 0 || r.TokenBurst < 0 {
+		errs = append(errs, errors.New("rate_limit values must not be negative (0 disables a limit)"))
 	}
 	if c.GCInterval < 0 {
 		errs = append(errs, errors.New("gc_interval must not be negative (0s disables garbage collection)"))

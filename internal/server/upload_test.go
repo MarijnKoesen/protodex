@@ -272,6 +272,9 @@ func TestUploadRejects(t *testing.T) {
 	big := protoFiles("big.proto", strings.Repeat("x", 2<<10))
 	_, err = upload(e.up, "weather", big, nil)
 	wantCode(t, err, connect.CodeInvalidArgument)
+	// Each file is within the per-file limit, but together they exceed the push quota.
+	_, err = upload(e.up, "weather", protoFiles("a.proto", strings.Repeat("x", 1000), "b.proto", strings.Repeat("y", 1000)), nil)
+	wantCode(t, err, connect.CodeInvalidArgument)
 	_, err = upload(e.up, "weather", protoFiles("a.proto", "1", "a.proto", "2"), nil)
 	wantCode(t, err, connect.CodeInvalidArgument)
 	_, err = upload(e.up, "weather", protoFiles("buf.yaml", "version: v2"), nil)

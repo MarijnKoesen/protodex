@@ -25,6 +25,7 @@ import (
 	"github.com/marijnkoesen/protodex/internal/module"
 	"github.com/marijnkoesen/protodex/internal/oidcauth"
 	"github.com/marijnkoesen/protodex/internal/owner"
+	"github.com/marijnkoesen/protodex/internal/ratelimit"
 	"github.com/marijnkoesen/protodex/internal/server"
 	"github.com/marijnkoesen/protodex/internal/store"
 	"github.com/marijnkoesen/protodex/internal/store/sqlite"
@@ -68,7 +69,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
-		var opts []server.Option
+		rl := cfg.RateLimit
+		opts := []server.Option{server.WithRateLimit(ratelimit.Config{IPRate: rl.IPRate, IPBurst: rl.IPBurst,
+			TokenRate: rl.TokenRate, TokenBurst: rl.TokenBurst, TrustForwardedFor: rl.TrustForwardedFor})}
 		if cfg.DBPath != "" {
 			// Holding the store open keeps the exclusive lock for the
 			// server's lifetime; a second server on the same DB is refused.
@@ -87,7 +90,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return fmt.Errorf("open blob store: %w", err)
 			}
 			opts = append(opts, server.WithBlobs(blobs),
-				server.WithUploadLimits(server.UploadLimits{MaxFiles: cfg.MaxPushFiles, MaxFileBytes: cfg.MaxPushFileBytes}),
+				server.WithUploadLimits(server.UploadLimits{MaxFiles: cfg.MaxPushFiles, MaxFileBytes: cfg.MaxPushFileBytes, MaxTotalBytes: cfg.MaxPushBytes}),
 				// SQLite mode is single-process, so GC runs in-process.
 				server.WithGC(server.GCConfig{Interval: time.Duration(cfg.GCInterval),
 					Grace: time.Duration(cfg.GCGracePeriod), DryRun: cfg.GCDryRun}))
