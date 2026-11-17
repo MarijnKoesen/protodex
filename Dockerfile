@@ -8,7 +8,7 @@ RUN go mod download
 COPY . .
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath \
-      -ldflags "-s -w -X example.com/openbuf/internal/version.Version=${VERSION}" \
+      -ldflags "-s -w -X github.com/MarijnKoesen/openbuf/internal/version.Version=${VERSION}" \
       -o /out/openbuf ./cmd/openbuf
 
 FROM gcr.io/distroless/static-debian12:nonroot

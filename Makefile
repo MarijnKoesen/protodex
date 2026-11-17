@@ -6,7 +6,7 @@ GO            ?= go
 GOLANGCI_LINT ?= golangci-lint
 BIN_DIR       ?= bin
 VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-IMAGE         ?= openbuf:dev
+IMAGE         ?= ghcr.io/marijnkoesen/openbuf:dev
 
 # Pinned tool versions (bumped deliberately, not via @latest).
 GOLANGCI_LINT_VERSION ?= v2.15.0
@@ -16,7 +16,7 @@ GO_LICENSES_VERSION   ?= v2.0.1
 # The race detector needs cgo + a C compiler; CI always has one.
 RACE ?= $(shell CC=$$($(GO) env CC); command -v $$CC >/dev/null 2>&1 && echo -race)
 
-LDFLAGS := -s -w -X example.com/openbuf/internal/version.Version=$(VERSION)
+LDFLAGS := -s -w -X github.com/MarijnKoesen/openbuf/internal/version.Version=$(VERSION)
 
 .PHONY: all
 all: lint test build

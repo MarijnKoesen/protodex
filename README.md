@@ -1,7 +1,7 @@
 # Openbuf
 
-> Working name. The Go module path (`example.com/openbuf`) is a placeholder
-> and will be renamed once the final project name is chosen.
+> Name, module path and addressing are recorded in
+> [ADR 0001](docs/adr/0001-naming-and-addressing.md).
 
 Openbuf is an open-source (Apache-2.0), self-hostable Protobuf schema
 registry that aims to be wire-compatible with the public
