@@ -175,11 +175,16 @@ func TestUploadIdempotentAndHistory(t *testing.T) {
 	if err != nil || len(asc.Msg.GetCommits()) != 2 || asc.Msg.GetCommits()[0].GetId() != c1.GetId() || asc.Msg.GetNextPageToken() == "" {
 		t.Fatalf("ListCommits asc = %v, %v", asc, err)
 	}
-	// feature/x still points at c1; its history ends there.
+	// A label lists only the commit it points at; id_query matches substrings.
 	hist, err := e.cc.ListCommits(ctx, connect.NewRequest(&modulev1.ListCommitsRequest{ResourceRef: &modulev1.ResourceRef{
-		Value: &modulev1.ResourceRef_Name_{Name: &modulev1.ResourceRef_Name{Owner: "acme", Module: "weather", Child: &modulev1.ResourceRef_Name_LabelName{LabelName: "feature/x"}}}}}))
-	if err != nil || len(hist.Msg.GetCommits()) != 1 || hist.Msg.GetCommits()[0].GetId() != c1.GetId() {
-		t.Fatalf("label history = %v, %v", hist, err)
+		Value: &modulev1.ResourceRef_Name_{Name: &modulev1.ResourceRef_Name{Owner: "acme", Module: "weather", Child: &modulev1.ResourceRef_Name_LabelName{LabelName: "main"}}}}}))
+	if err != nil || len(hist.Msg.GetCommits()) != 1 || hist.Msg.GetCommits()[0].GetId() != c3.GetId() {
+		t.Fatalf("label listing = %v, %v", hist, err)
+	}
+	mid := strings.ToUpper(c2.GetId()[10:20])
+	q, err := e.cc.ListCommits(ctx, connect.NewRequest(&modulev1.ListCommitsRequest{ResourceRef: moduleResource("acme", "weather"), IdQuery: mid}))
+	if err != nil || !slices.ContainsFunc(q.Msg.GetCommits(), func(c *modulev1.Commit) bool { return c.GetId() == c2.GetId() }) {
+		t.Fatalf("id_query %q = %v, %v", mid, q, err)
 	}
 }
 

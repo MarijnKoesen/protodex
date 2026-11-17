@@ -166,8 +166,8 @@ func (s *commitService) GetCommits(ctx context.Context, req *connect.Request[mod
 }
 
 // ListCommits lists the commits a reference selects: all commits of a
-// module, the commits up to and including a label's commit (label history is
-// not recorded), or the single commit named. id_query matches id prefixes.
+// module, or the single commit a label or commit reference names.
+// id_query is a case-insensitive substring match on the id.
 func (s *commitService) ListCommits(ctx context.Context, req *connect.Request[modulev1.ListCommitsRequest]) (*connect.Response[modulev1.ListCommitsResponse], error) {
 	msg := req.Msg
 	r, err := resolveRef(ctx, s.st, msg.GetResourceRef())
@@ -176,18 +176,15 @@ func (s *commitService) ListCommits(ctx context.Context, req *connect.Request[mo
 	}
 	var cs []store.Commit
 	switch r.kind {
-	case refCommit:
+	case refCommit, refLabel:
 		cs = []store.Commit{*r.commit}
 	default:
 		if cs, err = s.st.ListCommits(ctx, r.mod.ID); err != nil {
 			return nil, internalErr(err)
 		}
-		if r.kind == refLabel {
-			cs = slices.DeleteFunc(cs, func(x store.Commit) bool { return x.CreatedAt.After(r.commit.CreatedAt) })
-		}
 	}
 	if q := strings.ToLower(msg.GetIdQuery()); q != "" {
-		cs = slices.DeleteFunc(cs, func(c store.Commit) bool { return !strings.HasPrefix(c.ID, q) })
+		cs = slices.DeleteFunc(cs, func(c store.Commit) bool { return !strings.Contains(c.ID, q) })
 	}
 	// The store lists newest first.
 	if msg.GetOrder() == modulev1.ListCommitsRequest_ORDER_CREATE_TIME_ASC {

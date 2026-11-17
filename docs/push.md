@@ -46,10 +46,14 @@ bound a module; the request as a whole is bounded by `max_request_bytes`.
 | Writing another user's namespace or a mirror owner | `PermissionDenied` |
 | Too many or too large files, duplicate paths, no module files, bad label name, same module twice, self- or duplicate-module dependency | `InvalidArgument` |
 
-`CommitService.ListCommits` of a label returns the commits up to and
-including the label's commit (label history is not recorded).
+`CommitService.ListCommits` of a label or commit returns just that commit;
+`id_query` is a case-insensitive substring match.
 
 ## Known limits
+
+Modules uploaded together in one request are not made dependencies of each
+other: only `dep_commit_ids` become edges (detecting local imports would need
+parsing the files).
 
 `buf push` of a module **with dependencies** also calls `GraphService` (and
 the CLI downloads dependency files), which are not implemented yet, so the
