@@ -1,0 +1,300 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package sqlite
+
+import (
+	"context"
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
+	"errors"
+	"time"
+
+	"modernc.org/sqlite"
+
+	"github.com/marijnkoesen/protodex/internal/store"
+	"github.com/marijnkoesen/protodex/internal/store/sqlite/db"
+)
+
+// queries adapts the sqlc-generated db.Queries to store.Querier. r serves
+// reads and w serves writes (the same tx in a transaction).
+type queries struct{ r, w *db.Queries }
+
+var _ store.Querier = (*queries)(nil)
+
+func newQueries(r, w db.DBTX) *queries { return &queries{r: db.New(r), w: db.New(w)} }
+
+func newID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// ts returns t (or now when zero) truncated to the stored microsecond precision.
+func ts(t time.Time) time.Time {
+	if t.IsZero() {
+		t = time.Now()
+	}
+	return time.UnixMicro(t.UTC().UnixMicro()).UTC()
+}
+
+func fromTS(v int64) time.Time { return time.UnixMicro(v).UTC() }
+
+func nullTS(t *time.Time) sql.NullInt64 {
+	if t == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: t.UTC().UnixMicro(), Valid: true}
+}
+
+func ptrTS(v sql.NullInt64) *time.Time {
+	if !v.Valid {
+		return nil
+	}
+	t := fromTS(v.Int64)
+	return &t
+}
+
+func b2i(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+const sqliteConstraint = 19 // SQLITE_CONSTRAINT primary result code
+
+func mapErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.ErrNotFound
+	}
+	var se *sqlite.Error
+	if errors.As(err, &se) && se.Code()&0xff == sqliteConstraint {
+		return errors.Join(store.ErrConflict, err)
+	}
+	return err
+}
+
+// existing maps "no rows affected" to ErrNotFound.
+func existing(n int64, err error) error {
+	if err != nil {
+		return mapErr(err)
+	}
+	if n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
+func mapAll[A, B any](in []A, err error, f func(A) B) ([]B, error) {
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	out := make([]B, 0, len(in))
+	for _, v := range in {
+		out = append(out, f(v))
+	}
+	return out, nil
+}
+
+// --- owners ---
+
+func ownerFrom(o db.Owner) store.Owner {
+	return store.Owner{ID: o.ID, Name: o.Name, Type: o.Type, CreatedAt: fromTS(o.CreatedAt)}
+}
+
+func (q *queries) CreateOwner(ctx context.Context, o store.Owner) (store.Owner, error) {
+	if o.ID == "" {
+		o.ID = newID()
+	}
+	o.CreatedAt = ts(o.CreatedAt)
+	err := q.w.CreateOwner(ctx, db.CreateOwnerParams{ID: o.ID, Name: o.Name, Type: o.Type, CreatedAt: o.CreatedAt.UnixMicro()})
+	return o, mapErr(err)
+}
+
+func (q *queries) GetOwner(ctx context.Context, name string) (store.Owner, error) {
+	o, err := q.r.GetOwner(ctx, name)
+	return ownerFrom(o), mapErr(err)
+}
+
+func (q *queries) ListOwners(ctx context.Context) ([]store.Owner, error) {
+	rows, err := q.r.ListOwners(ctx)
+	return mapAll(rows, err, ownerFrom)
+}
+
+// --- modules ---
+
+func moduleFrom(m db.Module) store.Module {
+	return store.Module{ID: m.ID, OwnerID: m.OwnerID, Name: m.Name, Visibility: m.Visibility,
+		DefaultLabel: m.DefaultLabel, CreatedAt: fromTS(m.CreatedAt)}
+}
+
+func (q *queries) CreateModule(ctx context.Context, m store.Module) (store.Module, error) {
+	if m.ID == "" {
+		m.ID = newID()
+	}
+	m.CreatedAt = ts(m.CreatedAt)
+	err := q.w.CreateModule(ctx, db.CreateModuleParams{ID: m.ID, OwnerID: m.OwnerID, Name: m.Name,
+		Visibility: m.Visibility, DefaultLabel: m.DefaultLabel, CreatedAt: m.CreatedAt.UnixMicro()})
+	return m, mapErr(err)
+}
+
+func (q *queries) GetModule(ctx context.Context, ownerID, name string) (store.Module, error) {
+	m, err := q.r.GetModule(ctx, db.GetModuleParams{OwnerID: ownerID, Name: name})
+	return moduleFrom(m), mapErr(err)
+}
+
+func (q *queries) ListModules(ctx context.Context, ownerID string) ([]store.Module, error) {
+	rows, err := q.r.ListModules(ctx, ownerID)
+	return mapAll(rows, err, moduleFrom)
+}
+
+// DeleteModule removes the module with its commits, labels, deps and
+// manifests. Labels reference commits, so they go first.
+func (q *queries) DeleteModule(ctx context.Context, id string) error {
+	if err := q.w.DeleteModuleLabels(ctx, id); err != nil {
+		return mapErr(err)
+	}
+	return existing(q.w.DeleteModule(ctx, id))
+}
+
+// --- commits ---
+
+func commitFrom(c db.Commit) store.Commit {
+	return store.Commit{ID: c.ID, ModuleID: c.ModuleID, Digest: c.Digest, CreatedAt: fromTS(c.CreatedAt)}
+}
+
+func (q *queries) CreateCommit(ctx context.Context, c store.Commit) (store.Commit, error) {
+	if c.ID == "" {
+		c.ID = newID()
+	}
+	c.CreatedAt = ts(c.CreatedAt)
+	err := q.w.CreateCommit(ctx, db.CreateCommitParams{ID: c.ID, ModuleID: c.ModuleID, Digest: c.Digest,
+		CreatedAt: c.CreatedAt.UnixMicro()})
+	return c, mapErr(err)
+}
+
+func (q *queries) GetCommit(ctx context.Context, moduleID, id string) (store.Commit, error) {
+	c, err := q.r.GetCommit(ctx, db.GetCommitParams{ModuleID: moduleID, ID: id})
+	return commitFrom(c), mapErr(err)
+}
+
+func (q *queries) ListCommits(ctx context.Context, moduleID string) ([]store.Commit, error) {
+	rows, err := q.r.ListCommits(ctx, moduleID)
+	return mapAll(rows, err, commitFrom)
+}
+
+// --- labels ---
+
+func labelFrom(l db.Label) store.Label {
+	return store.Label{ModuleID: l.ModuleID, Name: l.Name, CommitID: l.CommitID,
+		Archived: l.Archived != 0, UpdatedAt: fromTS(l.UpdatedAt)}
+}
+
+func (q *queries) SetLabel(ctx context.Context, l store.Label) (store.Label, error) {
+	l.UpdatedAt = ts(l.UpdatedAt)
+	err := q.w.SetLabel(ctx, db.SetLabelParams{ModuleID: l.ModuleID, Name: l.Name, CommitID: l.CommitID,
+		Archived: b2i(l.Archived), UpdatedAt: l.UpdatedAt.UnixMicro()})
+	return l, mapErr(err)
+}
+
+func (q *queries) GetLabel(ctx context.Context, moduleID, name string) (store.Label, error) {
+	l, err := q.r.GetLabel(ctx, db.GetLabelParams{ModuleID: moduleID, Name: name})
+	return labelFrom(l), mapErr(err)
+}
+
+func (q *queries) ListLabels(ctx context.Context, moduleID string) ([]store.Label, error) {
+	rows, err := q.r.ListLabels(ctx, moduleID)
+	return mapAll(rows, err, labelFrom)
+}
+
+func (q *queries) ArchiveLabel(ctx context.Context, moduleID, name string, archived bool) error {
+	return existing(q.w.ArchiveLabel(ctx, db.ArchiveLabelParams{Archived: b2i(archived),
+		UpdatedAt: ts(time.Time{}).UnixMicro(), ModuleID: moduleID, Name: name}))
+}
+
+// --- commit deps ---
+
+func (q *queries) AddCommitDeps(ctx context.Context, deps []store.CommitDep) error {
+	for _, d := range deps {
+		if err := q.w.AddCommitDep(ctx, db.AddCommitDepParams(d)); err != nil {
+			return mapErr(err)
+		}
+	}
+	return nil
+}
+
+func (q *queries) ListCommitDeps(ctx context.Context, commitID string) ([]store.CommitDep, error) {
+	rows, err := q.r.ListCommitDeps(ctx, commitID)
+	return mapAll(rows, err, func(d db.CommitDep) store.CommitDep { return store.CommitDep(d) })
+}
+
+// --- blobs and manifests ---
+
+func (q *queries) PutBlob(ctx context.Context, b store.Blob) error {
+	return mapErr(q.w.PutBlob(ctx, db.PutBlobParams{Digest: b.Digest, Size: int64(len(b.Data)), Data: b.Data}))
+}
+
+func (q *queries) GetBlob(ctx context.Context, digest string) (store.Blob, error) {
+	b, err := q.r.GetBlob(ctx, digest)
+	return store.Blob(b), mapErr(err)
+}
+
+// SetManifest replaces the commit's manifest. Use it inside WithTx (or via
+// Store.SetManifest) for atomicity.
+func (q *queries) SetManifest(ctx context.Context, commitID string, entries []store.ManifestEntry) error {
+	if err := q.w.DeleteManifest(ctx, commitID); err != nil {
+		return mapErr(err)
+	}
+	for _, e := range entries {
+		if err := q.w.AddManifestEntry(ctx, db.AddManifestEntryParams{CommitID: commitID, Path: e.Path,
+			BlobDigest: e.BlobDigest}); err != nil {
+			return mapErr(err)
+		}
+	}
+	return nil
+}
+
+func (q *queries) GetManifest(ctx context.Context, commitID string) ([]store.ManifestEntry, error) {
+	rows, err := q.r.GetManifest(ctx, commitID)
+	return mapAll(rows, err, func(e db.ManifestEntry) store.ManifestEntry { return store.ManifestEntry(e) })
+}
+
+// --- tokens ---
+
+func tokenFrom(t db.Token) store.Token {
+	return store.Token{ID: t.ID, OwnerID: t.OwnerID, Name: t.Name, Hash: t.Hash,
+		CreatedAt: fromTS(t.CreatedAt), ExpiresAt: ptrTS(t.ExpiresAt), LastUsedAt: ptrTS(t.LastUsedAt)}
+}
+
+func (q *queries) CreateToken(ctx context.Context, t store.Token) (store.Token, error) {
+	if t.ID == "" {
+		t.ID = newID()
+	}
+	t.CreatedAt = ts(t.CreatedAt)
+	err := q.w.CreateToken(ctx, db.CreateTokenParams{ID: t.ID, OwnerID: t.OwnerID, Name: t.Name, Hash: t.Hash,
+		CreatedAt: t.CreatedAt.UnixMicro(), ExpiresAt: nullTS(t.ExpiresAt), LastUsedAt: nullTS(t.LastUsedAt)})
+	return t, mapErr(err)
+}
+
+func (q *queries) GetTokenByHash(ctx context.Context, hash string) (store.Token, error) {
+	t, err := q.r.GetTokenByHash(ctx, hash)
+	return tokenFrom(t), mapErr(err)
+}
+
+func (q *queries) ListTokens(ctx context.Context, ownerID string) ([]store.Token, error) {
+	rows, err := q.r.ListTokens(ctx, ownerID)
+	return mapAll(rows, err, tokenFrom)
+}
+
+func (q *queries) TouchToken(ctx context.Context, id string, at time.Time) error {
+	t := ts(at)
+	return existing(q.w.TouchToken(ctx, db.TouchTokenParams{LastUsedAt: nullTS(&t), ID: id}))
+}
+
+func (q *queries) DeleteToken(ctx context.Context, id string) error {
+	return existing(q.w.DeleteToken(ctx, id))
+}

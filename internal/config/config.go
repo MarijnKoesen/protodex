@@ -27,6 +27,9 @@ type Config struct {
 	LogFormat string `json:"log_format"`
 	// MaxRequestBytes caps the size of a request body (and header block).
 	MaxRequestBytes int64 `json:"max_request_bytes"`
+	// DBPath is the SQLite database file. When set, serve opens it (taking
+	// the exclusive process lock) and refuses to start if it is in use.
+	DBPath string `json:"db_path"`
 	// ShutdownTimeout bounds graceful shutdown.
 	ShutdownTimeout Duration `json:"shutdown_timeout"`
 	// TracingEnabled turns on OpenTelemetry tracing with an OTLP/HTTP exporter.
@@ -79,6 +82,7 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 		logLevel  = fs.String("log-level", "", "log level: debug|info|warn|error")
 		logFormat = fs.String("log-format", "", "log format: text|json")
 		maxBytes  = fs.Int64("max-request-bytes", 0, "maximum request body size in bytes")
+		dbPath    = fs.String("db-path", "", "SQLite database path")
 		shutdown  = fs.Duration("shutdown-timeout", 0, "graceful shutdown timeout")
 		tracing   = fs.Bool("tracing", false, "enable OpenTelemetry tracing (OTLP/HTTP)")
 		otlp      = fs.String("otlp-endpoint", "", "OTLP/HTTP collector URL")
@@ -117,6 +121,9 @@ func Load(args []string, getenv func(string) string, out io.Writer) (Config, err
 	if set["max-request-bytes"] {
 		cfg.MaxRequestBytes = *maxBytes
 	}
+	if set["db-path"] {
+		cfg.DBPath = *dbPath
+	}
 	if set["shutdown-timeout"] {
 		cfg.ShutdownTimeout = Duration(*shutdown)
 	}
@@ -146,6 +153,9 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 			return fmt.Errorf("PROTODEX_MAX_REQUEST_BYTES: %w", err)
 		}
 		cfg.MaxRequestBytes = n
+	}
+	if v := getenv("PROTODEX_DB_PATH"); v != "" {
+		cfg.DBPath = v
 	}
 	if v := getenv("PROTODEX_SHUTDOWN_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)

@@ -15,6 +15,7 @@ GO_LICENSES_VERSION   ?= v2.0.1
 BUF_VERSION           ?= v1.57.0
 PROTOC_GEN_GO_VERSION ?= v1.36.12
 PROTOC_GEN_CONNECT_GO_VERSION ?= v1.21.1
+SQLC_VERSION          ?= v1.30.0
 
 # buf and the protoc plugins are built into $(TOOLS_DIR) at the pinned versions.
 TOOLS_DIR ?= $(CURDIR)/bin/tools
@@ -52,10 +53,17 @@ generate-tools:
 	GOBIN=$(TOOLS_DIR) $(GO) install github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 	GOBIN=$(TOOLS_DIR) $(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
 	GOBIN=$(TOOLS_DIR) $(GO) install connectrpc.com/connect/cmd/protoc-gen-connect-go@$(PROTOC_GEN_CONNECT_GO_VERSION)
+	GOBIN=$(TOOLS_DIR) $(GO) install github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
+
+.PHONY: sqlc
+sqlc: generate-tools 
+	rm -rf internal/store/sqlite/db
+	PATH="$(TOOLS_DIR):$$PATH" sqlc generate
 
 .PHONY: generate
 generate: generate-tools ## Regenerate code (go generate + buf generate into gen/)
 	$(GO) generate ./...
+	$(MAKE) sqlc
 	rm -rf gen
 	PATH="$(TOOLS_DIR):$$PATH" buf generate proto
 
