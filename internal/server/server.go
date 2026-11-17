@@ -160,7 +160,7 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 
 	mux.Handle("GET /metrics", obs.Metrics.Handler())
 
-	var h http.Handler = http.MaxBytesHandler(mux, maxRequestBytes)
+	h := http.MaxBytesHandler(mux, maxRequestBytes)
 	if o.rate != nil {
 		rc := *o.rate
 		rc.Exempt = func(p string) bool { return p == "/healthz" || p == "/readyz" || p == "/metrics" }
