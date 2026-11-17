@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"connectrpc.com/connect"
@@ -76,8 +77,50 @@ func walkDeps(ctx context.Context, q store.Querier, roots []depCommit, visit fun
 	return nil
 }
 
+// topoSort orders commits so every commit comes before the commits it
+// depends on (dependents first, otherwise in the order commits become ready). A dependency
+// cycle cannot be produced by pushes, which only reference existing
+// commits, but corrupt data must not be served as a graph: it is
+// reported as FailedPrecondition.
+func topoSort(commits []depCommit, edges [][2]string) ([]depCommit, error) {
+	indeg := make(map[string]int, len(commits))
+	out := make(map[string][]string, len(commits))
+	for _, e := range edges {
+		out[e[0]] = append(out[e[0]], e[1])
+		indeg[e[1]]++
+	}
+	byID := make(map[string]depCommit, len(commits))
+	for _, c := range commits {
+		byID[c.commit.ID] = c
+	}
+	sorted := make([]depCommit, 0, len(commits))
+	var ready []string
+	for _, c := range commits {
+		if indeg[c.commit.ID] == 0 {
+			ready = append(ready, c.commit.ID)
+		}
+	}
+	for len(ready) > 0 {
+		id := ready[0]
+		ready = ready[1:]
+		sorted = append(sorted, byID[id])
+		for _, to := range out[id] {
+			if indeg[to]--; indeg[to] == 0 {
+				ready = append(ready, to)
+			}
+		}
+	}
+	if len(sorted) != len(commits) {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("dependency cycle detected in module graph"))
+	}
+	return sorted, nil
+}
+
 // GetGraph returns the commits the references resolve to, all their
 // transitive dependency commits, and the dependency edges between them.
+// Commits are topologically ordered: a commit precedes its dependencies.
+// Different commits of one module (a version conflict, e.g. in a diamond)
+// are all returned; choosing between them is up to the client.
 func (s *graphService) GetGraph(ctx context.Context, req *connect.Request[modulev1.GetGraphRequest]) (*connect.Response[modulev1.GetGraphResponse], error) {
 	var roots []depCommit
 	for _, ref := range req.Msg.GetResourceRefs() {
@@ -90,20 +133,30 @@ func (s *graphService) GetGraph(ctx context.Context, req *connect.Request[module
 		}
 		roots = append(roots, depCommit{r.mod, *r.commit})
 	}
-	g := &modulev1.Graph{}
+	var commits []depCommit
+	var edges [][2]string
 	err := walkDeps(ctx, s.st, roots,
 		func(c depCommit) error {
-			g.Commits = append(g.Commits, commitProto(c.mod, c.commit))
+			commits = append(commits, c)
 			return nil
 		},
-		func(from, to string) {
-			g.Edges = append(g.Edges, &modulev1.Graph_Edge{
-				FromNode: &modulev1.Graph_Node{CommitId: from},
-				ToNode:   &modulev1.Graph_Node{CommitId: to},
-			})
-		})
+		func(from, to string) { edges = append(edges, [2]string{from, to}) })
 	if err != nil {
 		return nil, err
+	}
+	commits, err = topoSort(commits, edges)
+	if err != nil {
+		return nil, err
+	}
+	g := &modulev1.Graph{}
+	for _, c := range commits {
+		g.Commits = append(g.Commits, commitProto(c.mod, c.commit))
+	}
+	for _, e := range edges {
+		g.Edges = append(g.Edges, &modulev1.Graph_Edge{
+			FromNode: &modulev1.Graph_Node{CommitId: e[0]},
+			ToNode:   &modulev1.Graph_Node{CommitId: e[1]},
+		})
 	}
 	return connect.NewResponse(&modulev1.GetGraphResponse{Graph: g}), nil
 }

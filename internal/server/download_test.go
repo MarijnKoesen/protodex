@@ -316,6 +316,98 @@ func TestGetGraph(t *testing.T) {
 	}
 }
 
+func TestGetGraphDiamondAndConflict(t *testing.T) {
+	e := newPushEnv(t)
+	ctx := context.Background()
+	rc := newReadClients(e.url, bearer(e.secret))
+	for _, m := range []string{"base", "left", "right", "app"} {
+		e.module(t, m)
+	}
+	base1, err := upload(e.up, "base", protoFiles("b.proto", "// b1"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base2, err := upload(e.up, "base", protoFiles("b.proto", "// b2"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, err := upload(e.up, "left", protoFiles("l.proto", "// l"), []string{base1.GetId()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := upload(e.up, "right", protoFiles("r.proto", "// r"), []string{base2.GetId()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := upload(e.up, "app", protoFiles("a.proto", "// a"), []string{left.GetId(), right.GetId()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := rc.gs.GetGraph(ctx, connect.NewRequest(&modulev1.GetGraphRequest{ResourceRefs: []*modulev1.ResourceRef{refID(app.GetId())}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := resp.Msg.GetGraph()
+	pos := map[string]int{}
+	for i, c := range g.GetCommits() {
+		pos[c.GetId()] = i
+	}
+	if len(pos) != 5 || len(g.GetCommits()) != 5 {
+		t.Fatalf("want 5 unique commits (both base versions), got %d", len(g.GetCommits()))
+	}
+	if len(g.GetEdges()) != 4 {
+		t.Fatalf("edges = %v", g.GetEdges())
+	}
+	for _, ed := range g.GetEdges() {
+		if pos[ed.GetFromNode().GetCommitId()] >= pos[ed.GetToNode().GetCommitId()] {
+			t.Fatalf("edge %v not in topological order: %v", ed, pos)
+		}
+	}
+}
+
+func TestGetGraphSharedBaseOrdering(t *testing.T) {
+	e := newPushEnv(t)
+	rc := newReadClients(e.url, bearer(e.secret))
+	for _, m := range []string{"base", "mid", "app"} {
+		e.module(t, m)
+	}
+	base, err := upload(e.up, "base", protoFiles("b.proto", "// b"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mid, err := upload(e.up, "mid", protoFiles("m.proto", "// m"), []string{base.GetId()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// app lists base before mid, so breadth-first discovery puts base before
+	// mid; only the topological sort fixes that.
+	app, err := upload(e.up, "app", protoFiles("a.proto", "// a"), []string{base.GetId(), mid.GetId()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := rc.gs.GetGraph(context.Background(), connect.NewRequest(&modulev1.GetGraphRequest{ResourceRefs: []*modulev1.ResourceRef{refID(app.GetId())}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := resp.Msg.GetGraph()
+	var ids []string
+	for _, c := range g.GetCommits() {
+		ids = append(ids, c.GetId())
+	}
+	if want := []string{app.GetId(), mid.GetId(), base.GetId()}; !slices.Equal(ids, want) {
+		t.Fatalf("commits = %v, want %v", ids, want)
+	}
+	into := 0
+	for _, ed := range g.GetEdges() {
+		if ed.GetToNode().GetCommitId() == base.GetId() {
+			into++
+		}
+	}
+	if into != 2 || len(g.GetEdges()) != 3 {
+		t.Fatalf("edges = %v", g.GetEdges())
+	}
+}
+
 func TestGetFileDescriptorSet(t *testing.T) {
 	e := newPushEnv(t)
 	ctx := context.Background()
