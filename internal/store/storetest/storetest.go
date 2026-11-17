@@ -697,6 +697,7 @@ func testTrustCredentials(t *testing.T, s store.Store) {
 		{Name: "y", ModuleID: m.ID, UserID: "missing", Provider: store.TrustGitHub, Role: store.ContributorRead},
 		{Name: "z", ModuleID: m.ID, UserID: u.ID, Provider: "gitlab", Role: store.ContributorRead},
 		{Name: "w", ModuleID: m.ID, UserID: u.ID, Provider: store.TrustGitHub, Role: store.ContributorAdmin},
+		{Name: "v", ModuleID: m.ID, UserID: u.ID, Provider: store.TrustGitHub, Role: store.ContributorRead, TokenTTL: 500 * time.Millisecond},
 	} {
 		_, err := s.CreateTrustCredential(ctx, bad)
 		is(t, err, store.ErrConflict)

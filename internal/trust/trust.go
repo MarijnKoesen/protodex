@@ -69,6 +69,10 @@ func Validate(c store.TrustCredential) error {
 	}
 	if c.TokenTTL < 0 || c.TokenTTL > config.MaxCITokenTTL {
 		errs = append(errs, fmt.Errorf("token TTL must be between 0 (server default) and %s", config.MaxCITokenTTL))
+	} else if c.TokenTTL > 0 && c.TokenTTL < time.Second {
+		// TTLs are stored in whole seconds; a subsecond one would silently
+		// become 0, the server default.
+		errs = append(errs, fmt.Errorf("token TTL %s is below the minimum of 1s", c.TokenTTL))
 	}
 	for _, p := range []struct{ what, pattern string }{{"subject", c.SubjectPattern}, {"ref", c.RefPattern}} {
 		if p.pattern != "" && strings.Trim(p.pattern, "*?") == "" {

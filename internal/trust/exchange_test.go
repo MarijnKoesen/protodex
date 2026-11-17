@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -257,5 +258,104 @@ func TestExchangeTTLCapped(t *testing.T) {
 	}
 	if resp.ExpiresAt.After(time.Now().Add(config.MaxCITokenTTL)) {
 		t.Fatalf("expires_at %v exceeds the cap", resp.ExpiresAt)
+	}
+}
+
+func TestExchangeDefaultRateLimit(t *testing.T) {
+	e := newExchangeEnv(t) // trust.New's own limiter, nothing injected
+	for i := range trust.ExchangeBurst {
+		if code, _ := e.post(t, "{"); code != http.StatusBadRequest {
+			t.Fatalf("request %d within burst: %d", i, code)
+		}
+	}
+	if code, out := e.post(t, "{"); code != http.StatusTooManyRequests {
+		t.Fatalf("request past burst: %d %v", code, out)
+	}
+}
+
+// stalledIssuer accepts connections but never answers; it counts requests.
+type stalledIssuer struct {
+	url  string
+	hits chan struct{}
+}
+
+func newStalledIssuer(t *testing.T) *stalledIssuer {
+	t.Helper()
+	release := make(chan struct{})
+	s := &stalledIssuer{hits: make(chan struct{}, 100)}
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		s.hits <- struct{}{}
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) }) // runs first: unblock handlers
+	s.url = srv.URL
+	return s
+}
+
+func TestExchangeStalledIssuer(t *testing.T) {
+	e := newExchangeEnv(t)
+	stalled := newStalledIssuer(t)
+	cfg := config.Default().CITrust
+	cfg.GitHubIssuer = stalled.url // discovery of the GitHub issuer hangs
+	cfg.Kubernetes = []config.KubernetesIssuer{{Issuer: e.k8s.URL(), JWKSURL: e.k8s.JWKSURL()}}
+	ex := trust.New(cfg, e.st, slog.New(slog.DiscardHandler))
+	ctx := context.Background()
+	k8sReq := trust.Request{Token: e.k8s.Token(aud, time.Minute, map[string]any{"sub": "system:serviceaccount:ci:pusher"}), Module: "acme/api"}
+	if _, err := ex.Exchange(ctx, k8sReq); err != nil { // caches the k8s keys
+		t.Fatal(err)
+	}
+	ghClaimsStalled := ghClaims()
+	ghClaimsStalled["iss"] = stalled.url
+	ghReq := trust.Request{Token: e.gh.Token(aud, time.Minute, ghClaimsStalled), Module: "acme/api"}
+
+	// No credential for the stalled issuer yet: denied without contacting it.
+	if _, err := ex.Exchange(ctx, ghReq); !errors.Is(err, trust.ErrDenied) {
+		t.Fatalf("no credential: %v", err)
+	}
+	if len(stalled.hits) != 0 {
+		t.Fatal("issuer contacted without a matching credential")
+	}
+	if _, err := trust.Add(ctx, e.st, trust.Spec{Name: "stalled", Module: "acme/api", User: "ci-bot", Issuer: stalled.url,
+		Audience: aud, Repository: "acme/api"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Two requests for the stalled issuer: one discovering, one waiting for it.
+	done := make(chan error, 2)
+	for range 2 {
+		go func() {
+			sctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+			defer cancel()
+			_, err := ex.Exchange(sctx, ghReq)
+			done <- err
+		}()
+	}
+	select {
+	case <-stalled.hits:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stalled issuer never contacted")
+	}
+	// Meanwhile the cached healthy issuer keeps working.
+	start := time.Now()
+	if _, err := ex.Exchange(ctx, k8sReq); err != nil {
+		t.Fatalf("healthy issuer during stall: %v", err)
+	}
+	if d := time.Since(start); d > 200*time.Millisecond {
+		t.Errorf("healthy issuer blocked for %v", d)
+	}
+	// The stalled requests end with their context, not with the issuer.
+	for range 2 {
+		select {
+		case err := <-done:
+			if err == nil || errors.Is(err, trust.ErrDenied) {
+				t.Errorf("stalled issuer: err = %v, want a discovery error", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("exchange for a stalled issuer did not give up")
+		}
 	}
 }

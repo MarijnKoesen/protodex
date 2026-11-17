@@ -27,6 +27,10 @@ ALTER TABLE tokens ADD COLUMN module_role TEXT NOT NULL DEFAULT ''
     CHECK (module_role IN ('', 'read', 'write'));
 
 -- +goose Down
+-- Scoped (CI) tokens must not survive the rollback: without module_id and
+-- module_role an older server would accept them with all the permissions of
+-- the credential's user.
+DELETE FROM tokens WHERE module_id IS NOT NULL OR module_role != '';
 ALTER TABLE tokens DROP COLUMN module_role;
 ALTER TABLE tokens DROP COLUMN module_id;
 DROP TABLE trust_credentials;

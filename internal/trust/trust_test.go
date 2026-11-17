@@ -23,7 +23,9 @@ func gh() store.TrustCredential {
 func TestValidate(t *testing.T) {
 	k8s := store.TrustCredential{Name: "k", Provider: store.TrustKubernetes, Issuer: "https://k8s", Audience: "pd",
 		SubjectPattern: "system:serviceaccount:ci:pusher", Role: store.ContributorRead}
-	for _, ok := range []store.TrustCredential{gh(), k8s} {
+	oneSecond, maxTTL := gh(), gh()
+	oneSecond.TokenTTL, maxTTL.TokenTTL = time.Second, config.MaxCITokenTTL
+	for _, ok := range []store.TrustCredential{gh(), k8s, oneSecond, maxTTL} {
 		if err := trust.Validate(ok); err != nil {
 			t.Errorf("Validate(%+v) = %v", ok, err)
 		}
@@ -35,6 +37,8 @@ func TestValidate(t *testing.T) {
 		"admin role":          func(c *store.TrustCredential) { c.Role = store.ContributorAdmin },
 		"ttl too long":        func(c *store.TrustCredential) { c.TokenTTL = 2 * time.Hour },
 		"negative ttl":        func(c *store.TrustCredential) { c.TokenTTL = -time.Second },
+		"subsecond ttl":       func(c *store.TrustCredential) { c.TokenTTL = 500 * time.Millisecond },
+		"just below 1s ttl":   func(c *store.TrustCredential) { c.TokenTTL = time.Second - time.Nanosecond },
 		"no repository":       func(c *store.TrustCredential) { c.Repository = "" },
 		"wildcard repository": func(c *store.TrustCredential) { c.Repository = "acme/*" },
 		"repository no slash": func(c *store.TrustCredential) { c.Repository = "acme" },

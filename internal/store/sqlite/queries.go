@@ -495,6 +495,10 @@ func (q *queries) CreateTrustCredential(ctx context.Context, c store.TrustCreden
 	if c.ID == "" {
 		c.ID = newID()
 	}
+	if c.TokenTTL > 0 && c.TokenTTL < time.Second {
+		// Stored in whole seconds, it would become 0: the server default.
+		return c, fmt.Errorf("%w: token TTL %s is below 1s", store.ErrConflict, c.TokenTTL)
+	}
 	c.CreatedAt = ts(c.CreatedAt)
 	c.TokenTTL = c.TokenTTL.Truncate(time.Second)
 	err := q.w.CreateTrustCredential(ctx, db.CreateTrustCredentialParams{ID: c.ID, Name: c.Name, ModuleID: c.ModuleID,

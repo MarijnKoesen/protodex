@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/marijnkoesen/protodex/internal/store"
 	"github.com/marijnkoesen/protodex/internal/store/storetest"
@@ -286,5 +287,60 @@ func TestLabelMigrationBackfillsIDs(t *testing.T) {
 	}
 	if got, err := s.GetLabelByID(ctx, ls[1].ID); err != nil || got.Name != "old" {
 		t.Fatalf("GetLabelByID = %+v, %v", got, err)
+	}
+}
+
+// Rolling back 00008 must not leave module-scoped (CI) tokens behind: an
+// older server, unaware of the scope, would grant them all of the user's
+// permissions.
+func TestRollbackTrustDeletesScopedTokens(t *testing.T) {
+	ctx := context.Background()
+	s := open(t, filepath.Join(t.TempDir(), "p.db"))
+	defer func() { _ = s.Close() }()
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	u, err := s.CreateOwner(ctx, store.Owner{Name: "ci-bot", Type: store.OwnerUser})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := s.CreateModule(ctx, store.Module{OwnerID: u.ID, Name: "api", Visibility: store.VisibilityPublic, DefaultLabel: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exp := time.Now().Add(time.Hour) // live, not yet swept
+	scoped, err := s.CreateToken(ctx, store.Token{OwnerID: u.ID, Name: "ci:gha", Hash: "scoped", CreatedAt: time.Now(),
+		ExpiresAt: &exp, ModuleID: m.ID, ModuleRole: store.ContributorWrite})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := s.CreateToken(ctx, store.Token{OwnerID: u.ID, Name: "laptop", Hash: "plain", CreatedAt: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	rows, err := s.writer.QueryContext(ctx, `SELECT id FROM tokens`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if ids[scoped.ID] {
+		t.Error("scoped CI token survived the rollback")
+	}
+	if !ids[plain.ID] {
+		t.Error("unscoped token deleted by the rollback")
 	}
 }

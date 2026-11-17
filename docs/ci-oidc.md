@@ -107,7 +107,7 @@ Flags of `trust add`:
 | `-subject` | pattern for the `sub` claim (**required** for `kubernetes`: `system:serviceaccount:NAMESPACE:NAME`) |
 | `-ref` | `github`: pattern for the `ref` claim, e.g. `refs/heads/main`, `refs/tags/v*` |
 | `-role` | `write` (default) or `read` |
-| `-ttl` | lifetime of minted tokens (max `1h`); default: the server's `ci_trust.token_ttl` |
+| `-ttl` | lifetime of minted tokens (whole seconds, `1s` to `1h`); default: the server's `ci_trust.token_ttl` |
 
 Rules fail closed: every configured rule must match, a missing claim never
 matches, a GitHub credential must pin the repository and a Kubernetes
@@ -216,7 +216,7 @@ On success (`200`):
 |--------|---------|
 | `400` | malformed body |
 | `401` | `{"error": "token exchange denied"}`: whatever the reason |
-| `429` | rate limited (the same limiter as bearer-token authentication) |
+| `429` | rate limited: per client address, a burst of 30 requests, then 1 per second |
 
 The client is never told *why* an exchange was denied (unknown module, no
 credential, untrusted issuer, bad signature, wrong audience, expired token,

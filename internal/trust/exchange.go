@@ -27,6 +27,18 @@ const ExchangePath = "/auth/ci-token"
 // maxRequestBytes bounds an exchange request; identity tokens are a few KiB.
 const maxRequestBytes = 64 << 10
 
+// Default limits of the exchange endpoint per client address: a burst of
+// ExchangeBurst requests (a CI matrix fanning out), refilled at
+// ExchangeRate per second.
+const (
+	ExchangeRate  = 1.0
+	ExchangeBurst = 30
+)
+
+// discoveryTimeout bounds fetching an issuer's discovery document and keys,
+// so a stalled issuer cannot hold requests indefinitely.
+const discoveryTimeout = 10 * time.Second
+
 // signingAlgs are the accepted identity-token signature algorithms
 // (asymmetric only).
 var signingAlgs = []string{oidc.RS256, oidc.RS384, oidc.RS512, oidc.ES256, oidc.ES384, oidc.ES512, oidc.PS256, oidc.PS384, oidc.PS512}
@@ -48,18 +60,29 @@ type Exchanger struct {
 	cfg   config.CITrust
 	store store.Store
 	log   *slog.Logger
-	// Limiter, when set, is consulted with the client address before any
-	// work is done (the same hook as bearer-token authentication).
+	// Limiter is consulted with the client address before any work is
+	// done. New installs a per-client token bucket (ExchangeRate,
+	// ExchangeBurst); nil disables rate limiting.
 	Limiter auth.Limiter
-	// HTTPClient fetches discovery documents and keys. Nil means
-	// http.DefaultClient.
+	// HTTPClient fetches discovery documents and keys. Nil means a client
+	// with a discoveryTimeout timeout.
 	HTTPClient *http.Client
 	// Now defaults to time.Now.
 	Now func() time.Time
 
-	mu      sync.Mutex
-	keySets map[string]oidc.KeySet // by issuer
+	mu      sync.Mutex              // guards issuers only, never held during I/O
+	issuers map[string]*issuerEntry // by issuer URL
 }
+
+// issuerEntry caches the key set of one issuer. sem (capacity 1) serializes
+// discovery of that issuer only, so a stalled issuer never blocks others.
+type issuerEntry struct {
+	sem  chan struct{}
+	keys oidc.KeySet // set once discovered; guarded by sem
+}
+
+// defaultHTTPClient is used without Exchanger.HTTPClient.
+var defaultHTTPClient = &http.Client{Timeout: discoveryTimeout}
 
 // New returns an Exchanger trusting the issuers in cfg. Discovery and key
 // fetching happen on first use.
@@ -67,7 +90,8 @@ func New(cfg config.CITrust, st store.Store, log *slog.Logger) *Exchanger {
 	if cfg.TokenTTL <= 0 {
 		cfg.TokenTTL = config.Duration(15 * time.Minute)
 	}
-	return &Exchanger{cfg: cfg, store: st, log: log, keySets: map[string]oidc.KeySet{}}
+	return &Exchanger{cfg: cfg, store: st, log: log, issuers: map[string]*issuerEntry{},
+		Limiter: auth.NewRateLimiter(ExchangeRate, ExchangeBurst)}
 }
 
 // Register mounts the exchange endpoint on mux.
@@ -83,10 +107,11 @@ func (e *Exchanger) now() time.Time {
 }
 
 func (e *Exchanger) ctx(ctx context.Context) context.Context {
-	if e.HTTPClient != nil {
-		ctx = oidc.ClientContext(ctx, e.HTTPClient)
+	c := e.HTTPClient
+	if c == nil {
+		c = defaultHTTPClient
 	}
-	return ctx
+	return oidc.ClientContext(ctx, c)
 }
 
 // Request is the JSON body of an exchange.
@@ -167,19 +192,30 @@ func (e *Exchanger) Exchange(ctx context.Context, req Request) (Response, error)
 	if err != nil {
 		return Response{}, deny("malformed token: %v", err)
 	}
-	provider, keys, err := e.issuer(ctx, issuer)
+	provider, jwksURL, err := e.trusted(issuer)
 	if err != nil {
 		return Response{}, err
 	}
-	creds, err := e.store.ListModuleTrustCredentials(ctx, m.ID)
+	all, err := e.store.ListModuleTrustCredentials(ctx, m.ID)
+	if err != nil {
+		return Response{}, err
+	}
+	var creds []store.TrustCredential
+	for _, c := range all {
+		if c.Provider == provider && c.Issuer == issuer {
+			creds = append(creds, c)
+		}
+	}
+	// Only contact the issuer when a credential could accept its token.
+	if len(creds) == 0 {
+		return Response{}, deny("no trust credential of module %s for issuer %q", req.Module, issuer)
+	}
+	keys, err := e.keySet(ctx, issuer, jwksURL)
 	if err != nil {
 		return Response{}, err
 	}
 	var reasons []string
 	for _, c := range creds {
-		if c.Provider != provider || c.Issuer != issuer {
-			continue
-		}
 		cl, err := e.verify(ctx, keys, c, req.Token)
 		if err != nil {
 			reasons = append(reasons, fmt.Sprintf("%s: %v", c.Name, err))
@@ -196,15 +232,12 @@ func (e *Exchanger) Exchange(ctx context.Context, req Request) (Response, error)
 		}
 		return resp, err
 	}
-	if len(reasons) == 0 {
-		return Response{}, deny("no trust credential of module %s for issuer %q", req.Module, issuer)
-	}
 	return Response{}, deny("%s", strings.Join(reasons, "; "))
 }
 
-// issuer returns the provider and key set of a trusted issuer.
-func (e *Exchanger) issuer(ctx context.Context, iss string) (string, oidc.KeySet, error) {
-	provider, jwksURL := "", ""
+// trusted returns the provider of a configured issuer and, for
+// Kubernetes issuers, their JWKS URL.
+func (e *Exchanger) trusted(iss string) (provider, jwksURL string, err error) {
 	if iss == e.cfg.GitHubIssuer {
 		provider = store.TrustGitHub
 	}
@@ -214,33 +247,52 @@ func (e *Exchanger) issuer(ctx context.Context, iss string) (string, oidc.KeySet
 		}
 	}
 	if provider == "" {
-		return "", nil, deny("untrusted issuer %q", iss)
+		return "", "", deny("untrusted issuer %q", iss)
 	}
+	return provider, jwksURL, nil
+}
+
+// keySet returns the (cached) key set of a trusted issuer, discovering its
+// JWKS URL first when jwksURL is empty. Discovery is bounded by
+// discoveryTimeout and by ctx, and only blocks requests for the same
+// issuer; a failure is not cached, so a later request retries.
+func (e *Exchanger) keySet(ctx context.Context, iss, jwksURL string) (oidc.KeySet, error) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
-	if ks, ok := e.keySets[iss]; ok {
-		return provider, ks, nil
+	ent, ok := e.issuers[iss]
+	if !ok {
+		ent = &issuerEntry{sem: make(chan struct{}, 1)}
+		e.issuers[iss] = ent
 	}
-	// The key set outlives this request: only the HTTP client is taken
-	// from the context.
-	kctx := e.ctx(context.WithoutCancel(ctx))
+	e.mu.Unlock()
+
+	select {
+	case ent.sem <- struct{}{}:
+	case <-ctx.Done():
+		return nil, fmt.Errorf("discover issuer %q: %w", iss, ctx.Err())
+	}
+	defer func() { <-ent.sem }()
+	if ent.keys != nil {
+		return ent.keys, nil
+	}
 	if jwksURL == "" {
-		p, err := oidc.NewProvider(kctx, iss)
+		dctx, cancel := context.WithTimeout(e.ctx(ctx), discoveryTimeout)
+		defer cancel()
+		p, err := oidc.NewProvider(dctx, iss)
 		if err != nil {
-			// Not cached: a later request retries discovery.
-			return "", nil, fmt.Errorf("discover issuer %q: %w", iss, err)
+			return nil, fmt.Errorf("discover issuer %q: %w", iss, err)
 		}
 		var meta struct {
 			JWKSURL string `json:"jwks_uri"`
 		}
 		if err := p.Claims(&meta); err != nil || meta.JWKSURL == "" {
-			return "", nil, fmt.Errorf("discover issuer %q: no jwks_uri", iss)
+			return nil, fmt.Errorf("discover issuer %q: no jwks_uri", iss)
 		}
 		jwksURL = meta.JWKSURL
 	}
-	ks := oidc.NewRemoteKeySet(kctx, jwksURL)
-	e.keySets[iss] = ks
-	return provider, ks, nil
+	// The key set outlives this request: it keeps only the HTTP client of
+	// the context (whose timeout bounds key fetches), not its deadline.
+	ent.keys = oidc.NewRemoteKeySet(e.ctx(context.WithoutCancel(ctx)), jwksURL)
+	return ent.keys, nil
 }
 
 // verify checks the signature, issuer, audience and expiry of rawToken

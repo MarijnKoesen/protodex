@@ -231,7 +231,8 @@ func WithLimiter(l auth.Limiter) Option { return func(o *serverOptions) { o.limi
 func WithOIDC(h *oidcauth.Handler) Option { return func(o *serverOptions) { o.oidc = h } }
 
 // WithCITrust mounts the CI token exchange endpoint (POST /auth/ci-token).
-// Unless the exchanger has its own Limiter, it uses the one of WithLimiter.
+// trust.New gives the exchanger its own per-client limiter; only if its
+// Limiter is nil does it fall back to the one of WithLimiter.
 func WithCITrust(e *trust.Exchanger) Option { return func(o *serverOptions) { o.ciTrust = e } }
 
 // NewHTTPServer returns an http.Server serving h over HTTP/1.1 and cleartext
