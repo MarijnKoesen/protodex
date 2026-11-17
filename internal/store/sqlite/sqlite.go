@@ -53,9 +53,14 @@ func dsn(path string, write bool) string {
 // Open locks and opens the database at path, creating it if needed. It does
 // not migrate; call Migrate.
 func Open(path string) (*Store, error) {
-	// Lock on the resolved path so symlink aliases share one lock.
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		path = resolved
+	// Lock on the resolved path so symlink aliases share one lock. If the
+	// file does not exist yet, still resolve its directory.
+	if abs, err := filepath.Abs(path); err == nil {
+		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+			path = resolved
+		} else if dir, err := filepath.EvalSymlinks(filepath.Dir(abs)); err == nil {
+			path = filepath.Join(dir, filepath.Base(abs))
+		}
 	}
 	lock, err := acquireLock(path + ".lock")
 	if err != nil {
