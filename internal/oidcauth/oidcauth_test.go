@@ -254,3 +254,43 @@ func TestUsernameDerivation(t *testing.T) {
 		t.Errorf("custom claim: %q", got)
 	}
 }
+
+func TestSplitClaimsFilledFromUserInfo(t *testing.T) {
+	e := setup(t, func(c *config.OIDC) { c.AllowedDomains = []string{"example.com"} })
+	// Email is in the ID token; verification and groups only at userinfo.
+	e.idp.claims = map[string]any{"email": "dan@example.com"}
+	e.idp.userinfo = map[string]any{"sub": "sub-1", "email_verified": true, "groups": []string{"registry-admins"}}
+	if code, body := e.login(t); code != 200 || !strings.Contains(body, "admin") {
+		t.Fatalf("status %d: %s", code, body)
+	}
+	// Userinfo for a different subject must be ignored.
+	e2 := setup(t, func(c *config.OIDC) { c.AllowedDomains = []string{"example.com"} })
+	e2.idp.claims = map[string]any{"email": "dan@example.com"}
+	e2.idp.userinfo = map[string]any{"sub": "someone-else", "email_verified": true, "groups": []string{"registry-admins"}}
+	if code, _ := e2.login(t); code != http.StatusForbidden {
+		t.Fatalf("foreign userinfo accepted: %d", code)
+	}
+}
+
+func TestLoginCookieIsHostLockedOverHTTPS(t *testing.T) {
+	e := setup(t, func(c *config.OIDC) { c.RedirectURL = "https://registry.example.com" + CallbackPath })
+	noRedirect := *e.cl
+	noRedirect.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	r, err := noRedirect.Get(e.srv.URL + LoginPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = r.Body.Close()
+	ck := r.Cookies()
+	if len(ck) != 1 || ck[0].Name != "__Host-protodex_oidc" || !ck[0].Secure || ck[0].Path != "/" || ck[0].Domain != "" || !ck[0].HttpOnly {
+		t.Fatalf("cookie = %+v", ck)
+	}
+	// A planted cookie under the old, unprefixed name is not accepted.
+	req, _ := http.NewRequest("GET", e.srv.URL+CallbackPath+"?code=x&state=a", nil)
+	req.AddCookie(&http.Cookie{Name: "protodex_oidc", Value: "a.b.c"}) //nolint:gosec // test
+	resp, _ := http.DefaultClient.Do(req)
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 400 {
+		t.Fatalf("planted cookie: %d", resp.StatusCode)
+	}
+}

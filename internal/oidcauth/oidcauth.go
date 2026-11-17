@@ -37,7 +37,7 @@ const (
 	// CallbackPath must match the configured redirect URL.
 	CallbackPath = "/auth/callback"
 
-	cookieName = "protodex_oidc"
+	cookieBase = "protodex_oidc"
 	cookieTTL  = 10 * time.Minute
 )
 
@@ -120,6 +120,15 @@ func random() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
+// cookieName is host-locked (__Host- prefix: Secure, Path=/, no Domain) over
+// https so a sibling subdomain cannot plant a login cookie (login fixation).
+func (h *Handler) cookieName() string {
+	if h.secureCookie() {
+		return "__Host-" + cookieBase
+	}
+	return cookieBase
+}
+
 func (h *Handler) secureCookie() bool { return strings.HasPrefix(h.cfg.RedirectURL, "https://") }
 
 func (h *Handler) fail(w http.ResponseWriter, status int, public string, err error) {
@@ -146,7 +155,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{ //nolint:gosec // Secure follows the https redirect URL; plain http is for local dev only
-		Name: cookieName, Value: state + "." + nonce + "." + verifier, Path: CallbackPath,
+		Name: h.cookieName(), Value: state + "." + nonce + "." + verifier, Path: "/",
 		MaxAge: int(cookieTTL.Seconds()), HttpOnly: true, Secure: h.secureCookie(), SameSite: http.SameSiteLaxMode,
 	})
 	u := h.oauth(p).AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier))
@@ -155,9 +164,9 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie(cookieName)
+	c, err := r.Cookie(h.cookieName())
 	// Always clear the one-shot cookie.
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Path: CallbackPath, MaxAge: -1, HttpOnly: true, Secure: h.secureCookie(), SameSite: http.SameSiteLaxMode}) //nolint:gosec // see login
+	http.SetCookie(w, &http.Cookie{Name: h.cookieName(), Path: "/", MaxAge: -1, HttpOnly: true, Secure: h.secureCookie(), SameSite: http.SameSiteLaxMode}) //nolint:gosec // see login
 	if err != nil {
 		h.fail(w, http.StatusBadRequest, "login session missing or expired; start again at "+LoginPath, nil)
 		return
@@ -210,8 +219,9 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, http.StatusUnauthorized, "unreadable id_token claims", err)
 		return
 	}
-	// Some providers only put profile claims on userinfo; fill gaps from it.
-	if _, ok := claims["email"]; !ok {
+	// Some providers only put some claims (email, verification, groups) on
+	// userinfo; fill any gap from it.
+	if h.missingClaims(claims) {
 		if ui, err := p.UserInfo(ctx, oauth2.StaticTokenSource(tok)); err == nil && ui.Subject == idt.Subject {
 			var extra map[string]any
 			if ui.Claims(&extra) == nil {
@@ -246,6 +256,19 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	_ = tokenPage.Execute(w, map[string]any{"User": owner.Name, "Role": who.Role, "Token": secret, "Expires": exp.UTC().Format(time.RFC3339)})
+}
+
+func (h *Handler) missingClaims(claims map[string]any) bool {
+	groups := h.cfg.GroupsClaim
+	if groups == "" {
+		groups = "groups"
+	}
+	for _, c := range []string{"email", "email_verified", groups} {
+		if _, ok := claims[c]; !ok {
+			return true
+		}
+	}
+	return false
 }
 
 var tokenPage = template.Must(template.New("token").Parse(`<!doctype html>
