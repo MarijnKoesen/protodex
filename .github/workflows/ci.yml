@@ -192,6 +192,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
+      HELM_VERSION: v3.19.0
       KUBECONFORM_VERSION: v0.8.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -207,6 +208,8 @@ jobs:
           fi
       - if: steps.detect.outputs.charts != ''
         uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: ${{ env.HELM_VERSION }}
       - if: steps.detect.outputs.charts != ''
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
@@ -215,11 +218,23 @@ jobs:
       - if: steps.detect.outputs.charts != ''
         env:
           CHARTS: ${{ steps.detect.outputs.charts }}
+        # Renders each chart with its defaults and with every ci/*-values.yaml
+        # (chart-testing convention). CRDs (ServiceMonitor, HTTPRoute) are
+        # validated against the datreeio CRDs-catalog schemas.
         run: |
+          set -euo pipefail
           go install "github.com/yannh/kubeconform/cmd/kubeconform@${KUBECONFORM_VERSION}"
+          kubeconform="$(go env GOPATH)/bin/kubeconform"
           for c in $CHARTS; do
-            helm lint --strict "$c"
-            helm template ci "$c" | "$(go env GOPATH)/bin/kubeconform" -strict -summary
+            for v in "" "$c"/ci/*-values.yaml; do
+              [ -z "$v" ] || [ -f "$v" ] || continue
+              echo "::group::$c ${v:-(defaults)}"
+              helm lint --strict "$c" ${v:+-f "$v"}
+              helm template ci "$c" ${v:+-f "$v"} | "$kubeconform" -strict -summary \
+                -schema-location default \
+                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+              echo "::endgroup::"
+            done
           done
 
   security:

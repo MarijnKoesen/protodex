@@ -3,6 +3,9 @@
 #   image:   multi-arch (amd64/arm64) image -> GHCR, SBOM (BuildKit attestation
 #            plus a syft SPDX SBOM attached via cosign and kept as a workflow
 #            artifact), cosign keyless signature, GitHub build provenance.
+#   chart:   Helm chart (deploy/helm/protodex) packaged with the tag version,
+#            pushed to GHCR as an OCI artifact, cosign keyless signature,
+#            GitHub build provenance.
 #   release: cross-compiled binaries + SHA256SUMS, provenance attestation,
 #            GitHub Release with generated changelog.
 # Actions are pinned by commit SHA; dependabot keeps the pins current.
@@ -22,6 +25,9 @@ env:
   REGISTRY: ghcr.io
   # GHCR image names must be lowercase.
   IMAGE_NAME: ghcr.io/marijnkoesen/protodex
+  # Helm OCI repository; the chart lands at ${CHART_REPO}/protodex:<X.Y.Z>.
+  CHART_REPO: ghcr.io/marijnkoesen/charts
+  HELM_VERSION: v3.19.0
 
 jobs:
   image:
@@ -114,9 +120,88 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  chart:
+    name: chart
+    # After the image so the chart's default appVersion tag already exists.
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write # push the chart to GHCR
+      id-token: write # cosign keyless + attestation signing (Sigstore OIDC)
+      attestations: write # actions/attest-build-provenance
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      version: ${{ steps.package.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: ${{ env.HELM_VERSION }}
+      # Docker credentials for cosign; helm keeps its own registry config.
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: package
+        name: Package chart
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          helm lint --strict deploy/helm/protodex
+          # appVersion = the git tag, which is also an image tag (see image job).
+          helm package deploy/helm/protodex --version "$version" --app-version "$TAG" --destination dist
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - id: push
+        name: Push chart to GHCR (OCI)
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+          ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | helm registry login "$REGISTRY" -u "$ACTOR" --password-stdin
+          out=$(helm push "dist/protodex-${VERSION}.tgz" "oci://${CHART_REPO}" 2>&1)
+          echo "$out"
+          digest=$(printf '%s\n' "$out" | awk '/^Digest:/ {print $2}')
+          case "$digest" in sha256:*) ;; *) echo "could not parse chart digest" >&2; exit 1 ;; esac
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - name: Sign chart (cosign keyless)
+        env:
+          REF: ${{ env.CHART_REPO }}/protodex@${{ steps.push.outputs.digest }}
+        run: cosign sign --yes "$REF"
+      - name: Build provenance attestation (chart)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.CHART_REPO }}/protodex
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Summary
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          {
+            echo '### Helm chart'
+            echo "\`oci://${CHART_REPO}/protodex\` version \`${VERSION}\` (\`${DIGEST}\`)"
+            echo '```sh'
+            echo "helm install protodex oci://${CHART_REPO}/protodex --version ${VERSION}"
+            echo "cosign verify ${CHART_REPO}/protodex@${DIGEST} \\"
+            echo "  --certificate-identity-regexp '^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/v' \\"
+            echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   release:
     name: release
-    needs: image
+    needs: [image, chart]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -178,6 +263,8 @@ jobs:
             ### Container image
             `${{ env.IMAGE_NAME }}:${{ github.ref_name }}` (`${{ needs.image.outputs.digest }}`), linux/amd64 + linux/arm64.
             Signed with cosign keyless; SBOM and build provenance attestations are attached in the registry.
+            ### Helm chart
+            `helm install protodex oci://${{ env.CHART_REPO }}/protodex --version ${{ needs.chart.outputs.version }}` (`${{ needs.chart.outputs.digest }}`), signed with cosign keyless.
             Verify binaries with `sha256sum -c SHA256SUMS` and `gh attestation verify <file> -R ${{ github.repository }}`.
           files: |
             dist/*.tar.gz
