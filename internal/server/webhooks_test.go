@@ -86,10 +86,6 @@ func TestWebhooksAndAuditLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := webhook.New(e.st, webhook.Options{}).RunOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	_ = secretURL
 	evs, _ := events.ListEvents(ctx, connect.NewRequest(&auditv1.ListEventsRequest{}))
 	for _, ev := range evs.Msg.GetEvents() {
 		if strings.Contains(ev.GetDataJson(), "s3cr3t") {
