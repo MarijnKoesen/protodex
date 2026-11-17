@@ -93,7 +93,8 @@ type CommitDep struct {
 	DepDigest   string
 }
 
-// Blob is content-addressed file content.
+// Blob is content-addressed file content. When the bytes live in the blob
+// store, Data is empty and Size records their length.
 type Blob struct {
 	Digest string
 	Size   int64

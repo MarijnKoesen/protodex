@@ -47,7 +47,7 @@ of it is functional on `main` right now:
 | `/healthz`, `/readyz` | **Functional** |
 | Registry RPCs (`buf push` / `buf dep update` / `buf registry login`) | Not yet: every RPC returns `unimplemented` |
 | `PROTODEX_DB_PATH` (SQLite on the `protodex-data` volume) | **Functional**: `serve` opens the database and holds its lock (#7) |
-| `PROTODEX_BLOB_BACKEND`, `PROTODEX_S3_*` (SeaweedFS) | **Ignored** until the blob store lands ([#8](https://github.com/MarijnKoesen/protodex/issues/8)) |
+| `PROTODEX_BLOB_BACKEND`, `PROTODEX_S3_*` (SeaweedFS) | **Ignored**: `serve` stores blobs on the filesystem (`PROTODEX_BLOB_DIR`); S3 wiring is pending ([#8](https://github.com/MarijnKoesen/protodex/issues/8)) |
 | `PROTODEX_BOOTSTRAP_ADMIN_TOKEN` | **Ignored** until token auth lands |
 
 The forward-looking variable names are provisional; the implementing issues

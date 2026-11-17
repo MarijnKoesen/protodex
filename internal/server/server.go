@@ -19,6 +19,7 @@ import (
 	"github.com/marijnkoesen/protodex/gen/buf/registry/module/v1/modulev1connect"
 	"github.com/marijnkoesen/protodex/gen/buf/registry/owner/v1/ownerv1connect"
 	"github.com/marijnkoesen/protodex/internal/auth"
+	"github.com/marijnkoesen/protodex/internal/blob"
 	"github.com/marijnkoesen/protodex/internal/config"
 	"github.com/marijnkoesen/protodex/internal/observability"
 	"github.com/marijnkoesen/protodex/internal/oidcauth"
@@ -30,7 +31,8 @@ import (
 // plus /healthz, /readyz and /metrics. Request bodies are capped at maxRequestBytes.
 //
 // Without WithStore no authentication is performed and the TokenService,
-// owner, module and label services stay unimplemented.
+// owner, module, label, commit and upload services stay unimplemented
+// (UploadService also needs WithBlobs).
 func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observability, options ...Option) http.Handler {
 	var o serverOptions
 	for _, f := range options {
@@ -55,7 +57,10 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 	mux := http.NewServeMux()
 	for _, reg := range []func() (string, http.Handler){
 		func() (string, http.Handler) {
-			return modulev1connect.NewCommitServiceHandler(modulev1connect.UnimplementedCommitServiceHandler{}, opts...)
+			if o.store == nil {
+				return modulev1connect.NewCommitServiceHandler(modulev1connect.UnimplementedCommitServiceHandler{}, opts...)
+			}
+			return modulev1connect.NewCommitServiceHandler(&commitService{st: o.store}, opts...)
 		},
 		func() (string, http.Handler) {
 			return modulev1connect.NewDownloadServiceHandler(modulev1connect.UnimplementedDownloadServiceHandler{}, opts...)
@@ -82,7 +87,10 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 			return modulev1connect.NewResourceServiceHandler(modulev1connect.UnimplementedResourceServiceHandler{}, opts...)
 		},
 		func() (string, http.Handler) {
-			return modulev1connect.NewUploadServiceHandler(modulev1connect.UnimplementedUploadServiceHandler{}, opts...)
+			if o.store == nil || o.blobs == nil {
+				return modulev1connect.NewUploadServiceHandler(modulev1connect.UnimplementedUploadServiceHandler{}, opts...)
+			}
+			return modulev1connect.NewUploadServiceHandler(&uploadService{st: o.store, blobs: o.blobs, obs: obs, limits: o.limits.withDefaults()}, opts...)
 		},
 		func() (string, http.Handler) {
 			if o.store == nil {
@@ -136,6 +144,8 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 }
 
 type serverOptions struct {
+	blobs   blob.Store
+	limits  UploadLimits
 	store   store.Store
 	limiter auth.Limiter
 	oidc    *oidcauth.Handler
@@ -147,6 +157,13 @@ type Option func(*serverOptions)
 // WithStore enables token authentication, TokenService and the owner,
 // module and label services backed by st.
 func WithStore(st store.Store) Option { return func(o *serverOptions) { o.store = st } }
+
+// WithBlobs sets the blob store file contents are pushed to. UploadService
+// needs both a store and a blob store; without them it stays unimplemented.
+func WithBlobs(b blob.Store) Option { return func(o *serverOptions) { o.blobs = b } }
+
+// WithUploadLimits bounds the files of a push.
+func WithUploadLimits(l UploadLimits) Option { return func(o *serverOptions) { o.limits = l } }
 
 // WithLimiter sets the authentication rate-limit hook.
 func WithLimiter(l auth.Limiter) Option { return func(o *serverOptions) { o.limiter = l } }
