@@ -187,6 +187,10 @@ volume comes from Litestream, not from the filesystem.
 
 ## Restore drill
 
+> On EKS Pod Identity with the default NetworkPolicy, add an egress rule for
+> `169.254.170.23/32` TCP 80 via `networkPolicy.egress.extraRules`, otherwise
+> credentials cannot be fetched and restore/replication fail.
+
 Practise this regularly; a backup you have not restored is not a backup.
 
 **1. Check replication is healthy.**
@@ -208,11 +212,14 @@ receiving writes.
 runs a full integrity check, without touching the live database):
 
 ```sh
+DRILL=/tmp/drill-$(date +%s).db   # unique name: the Litestream image has no rm
 kubectl -n protodex exec deploy/protodex -c litestream -- \
   litestream restore -config /etc/litestream.yml \
-    -o /tmp/drill.db -integrity-check full /var/lib/protodex/protodex.db
-kubectl -n protodex exec deploy/protodex -c litestream -- rm -f /tmp/drill.db /tmp/drill.db-wal /tmp/drill.db-shm
+    -o "$DRILL" -integrity-check full /var/lib/protodex/protodex.db
 ```
+
+The scratch file stays in the emptyDir until the next pod restart (the
+Litestream image is scratch-based and contains no `rm`).
 
 `/tmp` is an emptyDir limited by `tmpSizeLimit` (64Mi); raise it if the
 database is larger.

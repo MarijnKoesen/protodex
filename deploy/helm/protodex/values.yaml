@@ -270,7 +270,8 @@ networkPolicy:
       - ipBlock:
           cidr: 0.0.0.0/0
     s3Ports: [443]
-    # -- Extra egress rules (e.g. OTLP collector).
+    # -- Extra egress rules (e.g. OTLP collector). On EKS Pod Identity, allow the
+    # credential endpoint: [{to: [{ipBlock: {cidr: 169.254.170.23/32}}], ports: [{port: 80, protocol: TCP}]}]
     extraRules: []
 
 # -- Extra volumes/mounts for the protodex container.
