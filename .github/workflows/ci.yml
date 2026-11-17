@@ -77,6 +77,27 @@ jobs:
       - name: S3 contract tests against SeaweedFS
         run: go test -count=1 -v -run TestContractReal ./internal/blob/s3blob
 
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - run: make build
+      - name: Install Playwright
+        working-directory: e2e
+        run: npm ci --no-audit --no-fund && npx playwright install --with-deps chromium
+      - name: Web UI e2e tests
+        working-directory: e2e
+        run: |
+          E2E_TOKEN="pdx_$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')" npx playwright test
+
   oidc-dex:
     name: oidc-dex
     runs-on: ubuntu-latest
