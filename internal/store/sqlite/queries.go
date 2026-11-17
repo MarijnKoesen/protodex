@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"time"
 
 	"modernc.org/sqlite"
@@ -103,7 +104,8 @@ func mapAll[A, B any](in []A, err error, f func(A) B) ([]B, error) {
 // --- owners ---
 
 func ownerFrom(o db.Owner) store.Owner {
-	return store.Owner{ID: o.ID, Name: o.Name, Type: o.Type, CreatedAt: fromTS(o.CreatedAt)}
+	return store.Owner{ID: o.ID, Name: o.Name, Type: o.Type, Mirror: o.Mirror != 0,
+		CreatedAt: fromTS(o.CreatedAt), UpdatedAt: fromTS(o.UpdatedAt)}
 }
 
 func (q *queries) CreateOwner(ctx context.Context, o store.Owner) (store.Owner, error) {
@@ -111,7 +113,12 @@ func (q *queries) CreateOwner(ctx context.Context, o store.Owner) (store.Owner, 
 		o.ID = newID()
 	}
 	o.CreatedAt = ts(o.CreatedAt)
-	err := q.w.CreateOwner(ctx, db.CreateOwnerParams{ID: o.ID, Name: o.Name, Type: o.Type, CreatedAt: o.CreatedAt.UnixMicro()})
+	if o.UpdatedAt.IsZero() {
+		o.UpdatedAt = o.CreatedAt
+	}
+	o.UpdatedAt = ts(o.UpdatedAt)
+	err := q.w.CreateOwner(ctx, db.CreateOwnerParams{ID: o.ID, Name: o.Name, Type: o.Type, Mirror: b2i(o.Mirror),
+		CreatedAt: o.CreatedAt.UnixMicro(), UpdatedAt: o.UpdatedAt.UnixMicro()})
 	return o, mapErr(err)
 }
 
@@ -120,9 +127,30 @@ func (q *queries) GetOwner(ctx context.Context, name string) (store.Owner, error
 	return ownerFrom(o), mapErr(err)
 }
 
+func (q *queries) GetOwnerByID(ctx context.Context, id string) (store.Owner, error) {
+	o, err := q.r.GetOwnerByID(ctx, id)
+	return ownerFrom(o), mapErr(err)
+}
+
 func (q *queries) ListOwners(ctx context.Context) ([]store.Owner, error) {
 	rows, err := q.r.ListOwners(ctx)
 	return mapAll(rows, err, ownerFrom)
+}
+
+func (q *queries) RenameOwner(ctx context.Context, id, newName string) (store.Owner, error) {
+	n, err := q.w.RenameOwner(ctx, db.RenameOwnerParams{Name: newName, UpdatedAt: ts(time.Time{}).UnixMicro(), ID: id})
+	if err != nil {
+		return store.Owner{}, mapErr(err)
+	}
+	// Read back through the writer so a transaction sees its own update.
+	o, err := q.w.GetOwnerByID(ctx, id)
+	if err != nil {
+		return store.Owner{}, mapErr(err)
+	}
+	if n == 0 { // the row exists, so the mirror guard refused it
+		return store.Owner{}, fmt.Errorf("%w: mirror owner %q cannot be renamed", store.ErrConflict, o.Name)
+	}
+	return ownerFrom(o), nil
 }
 
 // --- modules ---

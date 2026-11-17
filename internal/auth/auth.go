@@ -122,31 +122,13 @@ func (a *Authenticator) Authenticate(ctx context.Context, secret, clientKey stri
 	if tok.ExpiresAt != nil && !now.Before(*tok.ExpiresAt) {
 		return Identity{}, ErrInvalidToken
 	}
-	owner, err := a.ownerByID(ctx, tok.OwnerID)
+	owner, err := a.Store.GetOwnerByID(ctx, tok.OwnerID)
 	if err != nil {
 		return Identity{}, err
 	}
 	// Best effort: a failed bookkeeping write must not fail the request.
 	_ = a.Store.TouchToken(ctx, tok.ID, now)
 	return Identity{Owner: owner, Token: tok}, nil
-}
-
-func (a *Authenticator) ownerByID(ctx context.Context, id string) (store.Owner, error) {
-	return OwnerByID(ctx, a.Store, id)
-}
-
-// OwnerByID finds an owner by id (the store only indexes owners by name).
-func OwnerByID(ctx context.Context, q store.Querier, id string) (store.Owner, error) {
-	owners, err := q.ListOwners(ctx)
-	if err != nil {
-		return store.Owner{}, err
-	}
-	for _, o := range owners {
-		if o.ID == id {
-			return o, nil
-		}
-	}
-	return store.Owner{}, store.ErrNotFound
 }
 
 // Bootstrap creates the first user and an initial token when no user exists.
@@ -169,11 +151,11 @@ func Bootstrap(ctx context.Context, st store.Store, username, secret string) (ou
 			return err
 		}
 		for _, o := range owners {
-			if o.Type == "user" {
+			if o.Type == store.OwnerUser {
 				return nil // already bootstrapped
 			}
 		}
-		u, err := q.CreateOwner(ctx, store.Owner{Name: username, Type: "user"})
+		u, err := q.CreateOwner(ctx, store.Owner{Name: username, Type: store.OwnerUser})
 		if err != nil {
 			return err
 		}

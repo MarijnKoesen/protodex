@@ -58,6 +58,8 @@ type Owner struct {
 	Name      string
 	Type      string
 	CreatedAt int64
+	Mirror    int64
+	UpdatedAt int64
 }
 
 type Token struct {

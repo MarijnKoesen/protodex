@@ -28,8 +28,8 @@ import (
 // Handler builds the HTTP handler: all MVP services (currently Unimplemented),
 // plus /healthz, /readyz and /metrics. Request bodies are capped at maxRequestBytes.
 //
-// Without WithStore no authentication is performed and TokenService stays
-// unimplemented.
+// Without WithStore no authentication is performed and the TokenService and
+// owner services stay unimplemented.
 func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observability, options ...Option) http.Handler {
 	var o serverOptions
 	for _, f := range options {
@@ -78,13 +78,22 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 			return modulev1connect.NewUploadServiceHandler(modulev1connect.UnimplementedUploadServiceHandler{}, opts...)
 		},
 		func() (string, http.Handler) {
-			return ownerv1connect.NewOrganizationServiceHandler(ownerv1connect.UnimplementedOrganizationServiceHandler{}, opts...)
+			if o.store == nil {
+				return ownerv1connect.NewOrganizationServiceHandler(ownerv1connect.UnimplementedOrganizationServiceHandler{}, opts...)
+			}
+			return ownerv1connect.NewOrganizationServiceHandler(&organizationService{st: o.store}, opts...)
 		},
 		func() (string, http.Handler) {
-			return ownerv1connect.NewOwnerServiceHandler(ownerv1connect.UnimplementedOwnerServiceHandler{}, opts...)
+			if o.store == nil {
+				return ownerv1connect.NewOwnerServiceHandler(ownerv1connect.UnimplementedOwnerServiceHandler{}, opts...)
+			}
+			return ownerv1connect.NewOwnerServiceHandler(&ownerService{st: o.store}, opts...)
 		},
 		func() (string, http.Handler) {
-			return ownerv1connect.NewUserServiceHandler(ownerv1connect.UnimplementedUserServiceHandler{}, opts...)
+			if o.store == nil {
+				return ownerv1connect.NewUserServiceHandler(ownerv1connect.UnimplementedUserServiceHandler{}, opts...)
+			}
+			return ownerv1connect.NewUserServiceHandler(&userService{st: o.store}, opts...)
 		},
 		func() (string, http.Handler) {
 			if o.store == nil {
@@ -123,7 +132,8 @@ type serverOptions struct {
 // Option configures Handler and Serve.
 type Option func(*serverOptions)
 
-// WithStore enables token authentication and TokenService backed by st.
+// WithStore enables token authentication, TokenService and the owner
+// services backed by st.
 func WithStore(st store.Store) Option { return func(o *serverOptions) { o.store = st } }
 
 // WithLimiter sets the authentication rate-limit hook.

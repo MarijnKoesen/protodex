@@ -43,6 +43,16 @@ func tableCount(t *testing.T, s *Store) int {
 	return n
 }
 
+func hasColumn(t *testing.T, s *Store, table, column string) bool {
+	t.Helper()
+	var n int
+	err := s.writer.QueryRow(`SELECT count(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n == 1
+}
+
 func TestMigrateUpDownIdempotent(t *testing.T) {
 	ctx := context.Background()
 	s := open(t, filepath.Join(t.TempDir(), "p.db"))
@@ -55,7 +65,16 @@ func TestMigrateUpDownIdempotent(t *testing.T) {
 	if tableCount(t, s) != 1 {
 		t.Fatal("owners table missing after up")
 	}
-	if err := s.Rollback(ctx); err != nil {
+	if !hasColumn(t, s, "owners", "mirror") {
+		t.Fatal("owners.mirror missing after up")
+	}
+	if err := s.Rollback(ctx); err != nil { // 00002: drops the owner columns
+		t.Fatal(err)
+	}
+	if tableCount(t, s) != 1 || hasColumn(t, s, "owners", "mirror") {
+		t.Fatal("00002 not rolled back cleanly")
+	}
+	if err := s.Rollback(ctx); err != nil { // 00001
 		t.Fatal(err)
 	}
 	if tableCount(t, s) != 0 {
@@ -147,5 +166,31 @@ func TestSecondProcessRefused(t *testing.T) {
 	}
 	if _, err := Open(path); !errors.Is(err, ErrLocked) {
 		t.Fatalf("open while another process holds the db: err = %v, want ErrLocked", err)
+	}
+}
+
+func TestOwnerMigrationBackfillsUpdatedAt(t *testing.T) {
+	ctx := context.Background()
+	s := open(t, filepath.Join(t.TempDir(), "p.db"))
+	defer func() { _ = s.Close() }()
+	p, err := s.provider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.UpTo(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.writer.ExecContext(ctx, `INSERT INTO owners (id, name, type, created_at) VALUES ('o1', 'acme', 'organization', 42)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	o, err := s.GetOwner(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Mirror || !o.UpdatedAt.Equal(o.CreatedAt) || o.CreatedAt.UnixMicro() != 42 {
+		t.Fatalf("migrated owner = %+v", o)
 	}
 }
