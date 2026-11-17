@@ -25,6 +25,7 @@ import (
 	"github.com/marijnkoesen/protodex/internal/gc"
 	"github.com/marijnkoesen/protodex/internal/observability"
 	"github.com/marijnkoesen/protodex/internal/oidcauth"
+	"github.com/marijnkoesen/protodex/internal/ratelimit"
 	"github.com/marijnkoesen/protodex/internal/store"
 	"github.com/marijnkoesen/protodex/internal/version"
 	"github.com/marijnkoesen/protodex/internal/webui"
@@ -159,7 +160,14 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 
 	mux.Handle("GET /metrics", obs.Metrics.Handler())
 
-	return accessLog(log, obs, http.MaxBytesHandler(mux, maxRequestBytes))
+	h := http.MaxBytesHandler(mux, maxRequestBytes)
+	if o.rate != nil {
+		rc := *o.rate
+		rc.Exempt = func(p string) bool { return p == "/healthz" || p == "/readyz" || p == "/metrics" }
+		rc.OnLimited = func(kind string) { log.Warn("rate limited", "limit", kind) }
+		h = ratelimit.Middleware(rc, h)
+	}
+	return accessLog(log, obs, h)
 }
 
 type serverOptions struct {
@@ -170,6 +178,7 @@ type serverOptions struct {
 	store   store.Store
 	limiter auth.Limiter
 	oidc    *oidcauth.Handler
+	rate    *ratelimit.Config
 }
 
 func newServerOptions(options []Option) serverOptions {
@@ -218,6 +227,10 @@ func WithUploadLimits(l UploadLimits) Option { return func(o *serverOptions) { o
 
 // WithLimiter sets the authentication rate-limit hook.
 func WithLimiter(l auth.Limiter) Option { return func(o *serverOptions) { o.limiter = l } }
+
+// WithRateLimit applies per-IP and per-token request rate limits ahead of
+// all handlers except health and metrics endpoints.
+func WithRateLimit(c ratelimit.Config) Option { return func(o *serverOptions) { o.rate = &c } }
 
 // WithOIDC mounts the OIDC login endpoints (/auth/login, /auth/callback).
 func WithOIDC(h *oidcauth.Handler) Option { return func(o *serverOptions) { o.oidc = h } }

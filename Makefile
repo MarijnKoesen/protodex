@@ -85,6 +85,11 @@ licenses: ## Check dependency licenses are Apache-2.0 compatible
 vuln: ## Scan for known vulnerabilities
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
+.PHONY: fuzz
+fuzz: ## Fuzz digest parsing (FUZZTIME=30s per target)
+	go test ./internal/b5 -run '^$$' -fuzz FuzzDigest -fuzztime $${FUZZTIME:-30s}
+	go test ./internal/b5 -run '^$$' -fuzz FuzzBytes -fuzztime $${FUZZTIME:-30s}
+
 .PHONY: docker
 docker: ## Build the container image (no push)
 	docker build --build-arg VERSION=$(VERSION) \

@@ -43,6 +43,7 @@ of it is functional on `main` right now:
 
 | Setting / feature | Status |
 |-------------------|--------|
+| `PROTODEX_RATE_LIMIT_IP_RATE`, `PROTODEX_RATE_LIMIT_TOKEN_RATE` (requests/s, `0` disables; config file `rate_limit.{ip,token}_{rate,burst}`; defaults 50/s per IP and 100/s per token), `PROTODEX_RATE_LIMIT_TRUST_FORWARDED_FOR`, `PROTODEX_MAX_PUSH_BYTES` (total bytes per push, default 64 MiB) | **Functional** |
 | `PROTODEX_ADDR`, `PROTODEX_LOG_LEVEL`, `PROTODEX_LOG_FORMAT` (also `PROTODEX_MAX_REQUEST_BYTES`, `PROTODEX_SHUTDOWN_TIMEOUT`, `PROTODEX_CONFIG`) | **Functional** (`internal/config`) |
 | `/healthz`, `/readyz` | **Functional** |
 | Registry RPCs (`buf push` / `buf dep update` / `buf registry login`) | Not yet: every RPC returns `unimplemented` |
