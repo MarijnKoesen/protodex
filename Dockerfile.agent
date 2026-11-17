@@ -1,31 +1,23 @@
-# Environment for running the forge agent on Go projects.
-# Includes make and a C toolchain (needed for `go test -race`, which requires cgo),
-# plus golangci-lint, so build, test and lint can all run in full.
-ARG GO_VERSION=1.27
-FROM golang:${GO_VERSION}-bookworm
-
-ARG GOLANGCI_LINT_VERSION=v2.15.0
+# Agent image for Go projects: make, a C toolchain (for `go test -race`) and golangci-lint.
+ARG BASE
+FROM ${BASE}
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        build-essential \
-        make \
-        gcc \
-        libc6-dev \
-        git \
-        ca-certificates \
-        curl \
-        jq \
+        build-essential make gcc libc6-dev git ca-certificates curl jq \
     && rm -rf /var/lib/apt/lists/*
 
-# Linter
-RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
-    | sh -s -- -b /usr/local/bin ${GOLANGCI_LINT_VERSION}
+ARG GO_VERSION=1.27.4
+ARG TARGETARCH
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -xz -C /usr/local
 
-# cgo must be on for the race detector
-ENV CGO_ENABLED=1 \
+# Runs use HOME=/forge/state, so keep Go's paths fixed rather than under HOME
+ENV PATH="/usr/local/go/bin:/opt/go/bin:${PATH}" \
+    GOPATH=/opt/go \
+    GOMODCACHE=/opt/go/pkg/mod \
+    CGO_ENABLED=1 \
     GOFLAGS=-buildvcs=false
 
-WORKDIR /workspace
-
-CMD ["bash"]
+ARG GOLANGCI_LINT_VERSION=v2.15.0
+RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+    | sh -s -- -b /usr/local/bin ${GOLANGCI_LINT_VERSION}
