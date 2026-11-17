@@ -27,6 +27,7 @@ import (
 	"github.com/marijnkoesen/protodex/internal/oidcauth"
 	"github.com/marijnkoesen/protodex/internal/store"
 	"github.com/marijnkoesen/protodex/internal/version"
+	"github.com/marijnkoesen/protodex/internal/webui"
 )
 
 // Handler builds the HTTP handler: all MVP services (currently Unimplemented),
@@ -147,6 +148,8 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 	mux.HandleFunc("GET /healthz", ok)
 	// No dependencies yet; readiness will gain a database check later.
 	mux.HandleFunc("GET /readyz", ok)
+
+	webui.Register(mux)
 
 	if o.oidc != nil {
 		o.oidc.Register(mux)
