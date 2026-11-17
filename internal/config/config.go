@@ -58,6 +58,75 @@ type Config struct {
 	// OIDC configures user login through an OpenID Connect provider. It is
 	// disabled while OIDC.Issuer is empty.
 	OIDC OIDC `json:"oidc"`
+	// CITrust configures exchanging CI workload identity tokens (GitHub
+	// Actions OIDC, Kubernetes service accounts) for short-lived registry
+	// tokens. Disabled by default.
+	CITrust CITrust `json:"ci_trust"`
+}
+
+// GitHubActionsIssuer is the issuer of GitHub Actions OIDC tokens.
+const GitHubActionsIssuer = "https://token.actions.githubusercontent.com"
+
+// MaxCITokenTTL caps the lifetime of tokens minted by a trust credential.
+const MaxCITokenTTL = time.Hour
+
+// CITrust configures the CI token exchange (POST /auth/ci-token, see
+// docs/ci-oidc.md). Trust credentials themselves (which module, which
+// repository) are managed with `protodex trust`; this section only says
+// which issuers the server is willing to verify tokens from.
+type CITrust struct {
+	// Enabled mounts the exchange endpoint.
+	Enabled bool `json:"enabled"`
+	// GitHubIssuer is the issuer of GitHub Actions tokens; change it only
+	// for GitHub Enterprise Server. Default GitHubActionsIssuer.
+	GitHubIssuer string `json:"github_issuer"`
+	// Kubernetes lists trusted Kubernetes service-account token issuers.
+	Kubernetes []KubernetesIssuer `json:"kubernetes"`
+	// TokenTTL is the lifetime of minted tokens for credentials without
+	// their own TTL. Default 15m, at most MaxCITokenTTL.
+	TokenTTL Duration `json:"token_ttl"`
+}
+
+// KubernetesIssuer is a trusted Kubernetes service-account token issuer.
+type KubernetesIssuer struct {
+	// Issuer is the cluster's service-account issuer (the iss claim, see
+	// kube-apiserver --service-account-issuer).
+	Issuer string `json:"issuer"`
+	// JWKSURL serves the issuer's public keys. Empty uses OIDC discovery
+	// at Issuer/.well-known/openid-configuration.
+	JWKSURL string `json:"jwks_url"`
+}
+
+func httpURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && u.Host != "" && (u.Scheme == "https" || u.Scheme == "http")
+}
+
+func (c CITrust) validate() []error {
+	if !c.Enabled {
+		return nil
+	}
+	var errs []error
+	if !httpURL(c.GitHubIssuer) {
+		errs = append(errs, fmt.Errorf("ci_trust.github_issuer %q must be an http(s) URL", c.GitHubIssuer))
+	}
+	seen := map[string]bool{c.GitHubIssuer: true}
+	for i, k := range c.Kubernetes {
+		if !httpURL(k.Issuer) {
+			errs = append(errs, fmt.Errorf("ci_trust.kubernetes[%d].issuer %q must be an http(s) URL", i, k.Issuer))
+		}
+		if seen[k.Issuer] {
+			errs = append(errs, fmt.Errorf("ci_trust.kubernetes[%d].issuer %q is listed twice", i, k.Issuer))
+		}
+		seen[k.Issuer] = true
+		if k.JWKSURL != "" && !httpURL(k.JWKSURL) {
+			errs = append(errs, fmt.Errorf("ci_trust.kubernetes[%d].jwks_url %q must be an http(s) URL", i, k.JWKSURL))
+		}
+	}
+	if c.TokenTTL <= 0 || time.Duration(c.TokenTTL) > MaxCITokenTTL {
+		errs = append(errs, fmt.Errorf("ci_trust.token_ttl must be positive and at most %s", MaxCITokenTTL))
+	}
+	return errs
 }
 
 // OIDC configures the OpenID Connect authorization-code login (Dex, Keycloak,
@@ -178,6 +247,10 @@ func Default() Config {
 			Scopes:      []string{"profile", "email", "groups"},
 			GroupsClaim: "groups",
 			TokenTTL:    Duration(720 * time.Hour),
+		},
+		CITrust: CITrust{
+			GitHubIssuer: GitHubActionsIssuer,
+			TokenTTL:     Duration(15 * time.Minute),
 		},
 	}
 }
@@ -326,6 +399,32 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	if v := getenv("PROTODEX_OIDC_ALLOWED_DOMAINS"); v != "" {
 		cfg.OIDC.AllowedDomains = strings.Split(v, ",")
 	}
+	if v := getenv("PROTODEX_CI_TRUST_ENABLED"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("PROTODEX_CI_TRUST_ENABLED: %w", err)
+		}
+		cfg.CITrust.Enabled = b
+	}
+	if v := getenv("PROTODEX_CI_TRUST_GITHUB_ISSUER"); v != "" {
+		cfg.CITrust.GitHubIssuer = v
+	}
+	if v := getenv("PROTODEX_CI_TRUST_KUBERNETES_ISSUERS"); v != "" {
+		// Issuers using OIDC discovery; set jwks_url in the config file.
+		cfg.CITrust.Kubernetes = nil
+		for _, iss := range strings.Split(v, ",") {
+			if iss = strings.TrimSpace(iss); iss != "" {
+				cfg.CITrust.Kubernetes = append(cfg.CITrust.Kubernetes, KubernetesIssuer{Issuer: iss})
+			}
+		}
+	}
+	if v := getenv("PROTODEX_CI_TRUST_TOKEN_TTL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("PROTODEX_CI_TRUST_TOKEN_TTL: %w", err)
+		}
+		cfg.CITrust.TokenTTL = Duration(d)
+	}
 	return nil
 }
 
@@ -360,6 +459,7 @@ func (c Config) Validate() error {
 		errs = append(errs, fmt.Errorf("log_level %q: %w", c.LogLevel, err))
 	}
 	errs = append(errs, c.OIDC.validate()...)
+	errs = append(errs, c.CITrust.validate()...)
 	return errors.Join(errs...)
 }
 

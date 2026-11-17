@@ -35,7 +35,12 @@ import (
 //   - the caller's contributor grant on the module (read, write or admin).
 //
 // Modules of mirror owners are capped at read: they are managed by
-// mirroring, never over the API. A module the caller cannot read is
+// mirroring, never over the API.
+//
+// A module-scoped token (minted by a CI trust credential, see
+// docs/ci-oidc.md) is further capped at its role (read or write) on its
+// one module; every other module it sees as an anonymous caller would. It
+// may not create modules, manage tokens or call admin procedures. A module the caller cannot read is
 // reported as NotFound so that its existence does not leak; a readable
 // module the caller may not change is PermissionDenied.
 
@@ -104,7 +109,11 @@ func modulePermission(ctx context.Context, q store.Querier, o store.Owner, m sto
 	if m.Visibility == store.VisibilityPublic {
 		p = permRead
 	}
-	if id, ok := auth.FromContext(ctx); ok {
+	id, ok := auth.FromContext(ctx)
+	if ok && scoped(id) && id.Token.ModuleID != m.ID {
+		ok = false // other modules: no more than anonymous access
+	}
+	if ok {
 		p = max(p, namespacePermission(id, o))
 		if p < permAdmin && !o.Mirror {
 			g, err := q.GetModuleContributor(ctx, m.ID, id.Owner.ID)
@@ -116,10 +125,23 @@ func modulePermission(ctx context.Context, q store.Querier, o store.Owner, m sto
 			}
 		}
 	}
+	if ok && scoped(id) {
+		// Unknown roles map to permNone: fail closed.
+		p = min(p, scopedRolePermission[id.Token.ModuleRole])
+	}
 	if o.Mirror {
 		p = min(p, permRead)
 	}
 	return p, nil
+}
+
+// scoped reports whether the caller's token is restricted to one module.
+func scoped(id auth.Identity) bool { return id.Token.ModuleID != "" }
+
+// scopedRolePermission caps module-scoped tokens; admin is never granted.
+var scopedRolePermission = map[string]permission{
+	store.ContributorRead:  permRead,
+	store.ContributorWrite: permWrite,
 }
 
 // canRead reports whether the caller may see module m owned by o.
@@ -161,12 +183,29 @@ func checkCreate(ctx context.Context, o store.Owner) error {
 		return err
 	}
 	switch {
+	case scoped(id):
+		return errScoped
 	case o.Mirror:
 		return errMirror(o)
 	case namespacePermission(id, o) < permAdmin:
 		return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("no permission to create modules under owner %q", o.Name))
 	}
 	return nil
+}
+
+var errScoped = connect.NewError(connect.CodePermissionDenied, errors.New("token is restricted to a single module"))
+
+// scopedAllowed reports whether a module-scoped token may call procedure
+// (which needs at least access). Such tokens may only read, write their
+// module (with a write role) and identify themselves.
+func scopedAllowed(id auth.Identity, procedure string, access procedureAccess) bool {
+	switch procedure {
+	case ownerv1connect.UserServiceGetCurrentUserProcedure, authnAlphaGetCurrentUser:
+		return true
+	case modulev1connect.ModuleServiceCreateModulesProcedure:
+		return false
+	}
+	return access == accessWrite && id.Token.ModuleRole == store.ContributorWrite
 }
 
 // procedureAccess is the minimum a procedure demands of its caller before
@@ -255,6 +294,9 @@ func authorizeProcedure(ctx context.Context, st store.Querier, procedure string)
 	id, err := caller(ctx)
 	if err != nil {
 		return err
+	}
+	if scoped(id) && !scopedAllowed(id, procedure, access) {
+		return errScoped
 	}
 	switch {
 	case access == accessAdmin && !isAdmin(id):

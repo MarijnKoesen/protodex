@@ -64,6 +64,15 @@ refused if it is empty. The role becomes the user's instance role on every
 login and is enforced as described in [docs/permissions.md](docs/permissions.md). The Dex integration test runs when
 `PROTODEX_TEST_DEX_ISSUER` is set (CI job `oidc-dex`).
 
+## Push from CI without stored tokens
+
+GitHub Actions jobs (and Kubernetes service accounts) can exchange their
+platform's OIDC identity token for a short-lived registry token restricted to
+one module, so no long-lived token has to be stored as a CI secret. Enable
+`ci_trust` and create a trust credential per module and repository with
+`protodex trust add`; see [docs/ci-oidc.md](docs/ci-oidc.md) for the
+configuration, security notes and an example workflow.
+
 ## Non-goals
 
 - Copying, decompiling or deriving from any non-public Buf server code,

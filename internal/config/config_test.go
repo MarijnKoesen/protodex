@@ -143,3 +143,57 @@ func TestGCConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestCITrustConfig(t *testing.T) {
+	cfg, err := Load(nil, env(nil), io.Discard)
+	if err != nil || cfg.CITrust.Enabled || cfg.CITrust.GitHubIssuer != GitHubActionsIssuer || time.Duration(cfg.CITrust.TokenTTL) != 15*time.Minute {
+		t.Fatalf("defaults: %+v %v", cfg.CITrust, err)
+	}
+	p := filepath.Join(t.TempDir(), "c.json")
+	body := `{"ci_trust":{"enabled":true,"kubernetes":[{"issuer":"https://k8s.example.com","jwks_url":"https://k8s.example.com/openid/v1/jwks"}]}}`
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load([]string{"-config", p}, env(map[string]string{"PROTODEX_CI_TRUST_TOKEN_TTL": "30m"}), io.Discard)
+	if err != nil || !cfg.CITrust.Enabled || len(cfg.CITrust.Kubernetes) != 1 || time.Duration(cfg.CITrust.TokenTTL) != 30*time.Minute {
+		t.Fatalf("file+env: %+v %v", cfg.CITrust, err)
+	}
+	cfg, err = Load(nil, env(map[string]string{"PROTODEX_CI_TRUST_ENABLED": "1", "PROTODEX_CI_TRUST_GITHUB_ISSUER": "https://ghes.example.com/_services/token",
+		"PROTODEX_CI_TRUST_KUBERNETES_ISSUERS": "https://a.example.com, https://b.example.com"}), io.Discard)
+	if err != nil || !cfg.CITrust.Enabled || cfg.CITrust.GitHubIssuer != "https://ghes.example.com/_services/token" ||
+		len(cfg.CITrust.Kubernetes) != 2 || cfg.CITrust.Kubernetes[1].Issuer != "https://b.example.com" {
+		t.Fatalf("env: %+v %v", cfg.CITrust, err)
+	}
+	for _, bad := range []map[string]string{
+		{"PROTODEX_CI_TRUST_ENABLED": "maybe"},
+		{"PROTODEX_CI_TRUST_TOKEN_TTL": "soon"},
+	} {
+		if _, err := Load(nil, env(bad), io.Discard); err == nil {
+			t.Errorf("%v: want error", bad)
+		}
+	}
+}
+
+func TestCITrustInvalid(t *testing.T) {
+	for name, mod := range map[string]func(*CITrust){
+		"bad github issuer": func(c *CITrust) { c.GitHubIssuer = "github" },
+		"bad k8s issuer":    func(c *CITrust) { c.Kubernetes = []KubernetesIssuer{{Issuer: "k8s"}} },
+		"bad jwks url":      func(c *CITrust) { c.Kubernetes = []KubernetesIssuer{{Issuer: "https://k", JWKSURL: "/keys"}} },
+		"duplicate issuer":  func(c *CITrust) { c.Kubernetes = []KubernetesIssuer{{Issuer: GitHubActionsIssuer}} },
+		"zero ttl":          func(c *CITrust) { c.TokenTTL = 0 },
+		"ttl too long":      func(c *CITrust) { c.TokenTTL = Duration(2 * time.Hour) },
+	} {
+		c := Default()
+		c.CITrust.Enabled = true
+		mod(&c.CITrust)
+		if c.Validate() == nil {
+			t.Errorf("%s: want error", name)
+		}
+	}
+	c := Default()
+	c.CITrust.Enabled = true
+	c.CITrust.Kubernetes = []KubernetesIssuer{{Issuer: "https://k8s.example.com"}}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

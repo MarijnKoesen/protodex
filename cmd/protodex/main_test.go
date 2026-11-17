@@ -326,3 +326,74 @@ func TestContributorCommand(t *testing.T) {
 		t.Fatalf("list after remove: %q %v", out, err)
 	}
 }
+
+func TestTrustCommand(t *testing.T) {
+	ctx := context.Background()
+	db := filepath.Join(t.TempDir(), "t.db")
+	noenv := func(string) string { return "" }
+	run := func(args ...string) (string, error) {
+		var out, errb bytes.Buffer
+		err := trustCmd(ctx, args, noenv, &out, &errb)
+		return out.String(), err
+	}
+	if err := ownerCmd(ctx, []string{"create", "-db", db, "-role", "viewer", "user", "ci-bot"}, noenv, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := ownerCmd(ctx, []string{"create", "-db", db, "org", "acme"}, noenv, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	s, err := sqlite.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ow, _ := s.GetOwner(ctx, "acme")
+	if _, err := s.CreateModule(ctx, store.Module{OwnerID: ow.ID, Name: "api", Visibility: store.VisibilityPrivate, DefaultLabel: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+
+	if out, err := run("add", "-db", db, "-audience", "https://pd.example.com", "-repository", "acme/api", "-ref", "refs/heads/main",
+		"gha", "acme/api", "ci-bot"); err != nil || !strings.Contains(out, `created trust credential "gha"`) {
+		t.Fatalf("add github: %q %v", out, err)
+	}
+	if out, err := run("add", "-db", db, "-provider", "kubernetes", "-issuer", "https://k8s.example.com", "-audience", "pd",
+		"-subject", "system:serviceaccount:ci:pusher", "-role", "read", "-ttl", "5m", "k8s", "acme/api", "ci-bot"); err != nil || !strings.Contains(out, "(read)") {
+		t.Fatalf("add kubernetes: %q %v", out, err)
+	}
+	out, err := run("list", "-db", db)
+	if err != nil || !strings.Contains(out, "gha") || !strings.Contains(out, "refs/heads/main") || !strings.Contains(out, "system:serviceaccount:ci:pusher") || !strings.Contains(out, "5m0s") {
+		t.Fatalf("list: %q %v", out, err)
+	}
+	if out, err := run("list", "-db", db, "acme/api"); err != nil || !strings.Contains(out, "k8s") {
+		t.Fatalf("list module: %q %v", out, err)
+	}
+	for _, bad := range [][]string{
+		{"add", "-db", db, "-audience", "a", "x", "acme/api", "ci-bot"},                                              // github without repository
+		{"add", "-db", db, "-repository", "acme/api", "x", "acme/api", "ci-bot"},                                     // no audience
+		{"add", "-db", db, "-audience", "a", "-repository", "acme/api", "-role", "admin", "x", "acme/api", "ci-bot"}, // admin role
+		{"add", "-db", db, "-audience", "a", "-repository", "acme/api", "-ttl", "2h", "x", "acme/api", "ci-bot"},     // ttl too long
+		{"add", "-db", db, "-audience", "a", "-repository", "acme/api", "gha", "acme/api", "ci-bot"},                 // duplicate
+		{"add", "-db", db, "-audience", "a", "-repository", "acme/api", "x", "acme/api", "acme"},                     // not a user
+		{"add", "-db", db, "-audience", "a", "-repository", "acme/api", "x", "acme/api"},                             // arity
+		{"list", "-db", db, "acme/nope"},
+		{"remove", "-db", db},
+		{"frob", "-db", db},
+		{"list"}, // no -db
+	} {
+		if _, err := run(bad...); err == nil {
+			t.Errorf("%v accepted", bad)
+		}
+	}
+	if _, err := run(); err == nil {
+		t.Error("missing action accepted")
+	}
+	if _, err := run("remove", "-db", db, "gha"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run("remove", "-db", db, "gha"); err == nil {
+		t.Fatal("removing a missing credential succeeded")
+	}
+	if out, err := run("list", "-db", db); err != nil || strings.Contains(out, "gha") {
+		t.Fatalf("list after remove: %q %v", out, err)
+	}
+}

@@ -443,7 +443,8 @@ func (q *queries) DeleteBlob(ctx context.Context, digest string) error {
 
 func tokenFrom(t db.Token) store.Token {
 	return store.Token{ID: t.ID, OwnerID: t.OwnerID, Name: t.Name, Hash: t.Hash,
-		CreatedAt: fromTS(t.CreatedAt), ExpiresAt: ptrTS(t.ExpiresAt), LastUsedAt: ptrTS(t.LastUsedAt)}
+		CreatedAt: fromTS(t.CreatedAt), ExpiresAt: ptrTS(t.ExpiresAt), LastUsedAt: ptrTS(t.LastUsedAt),
+		ModuleID: t.ModuleID.String, ModuleRole: t.ModuleRole}
 }
 
 func (q *queries) CreateToken(ctx context.Context, t store.Token) (store.Token, error) {
@@ -452,7 +453,8 @@ func (q *queries) CreateToken(ctx context.Context, t store.Token) (store.Token, 
 	}
 	t.CreatedAt = ts(t.CreatedAt)
 	err := q.w.CreateToken(ctx, db.CreateTokenParams{ID: t.ID, OwnerID: t.OwnerID, Name: t.Name, Hash: t.Hash,
-		CreatedAt: t.CreatedAt.UnixMicro(), ExpiresAt: nullTS(t.ExpiresAt), LastUsedAt: nullTS(t.LastUsedAt)})
+		CreatedAt: t.CreatedAt.UnixMicro(), ExpiresAt: nullTS(t.ExpiresAt), LastUsedAt: nullTS(t.LastUsedAt),
+		ModuleID: sql.NullString{String: t.ModuleID, Valid: t.ModuleID != ""}, ModuleRole: t.ModuleRole})
 	return t, mapErr(err)
 }
 
@@ -473,6 +475,52 @@ func (q *queries) TouchToken(ctx context.Context, id string, at time.Time) error
 
 func (q *queries) DeleteToken(ctx context.Context, id string) error {
 	return existing(q.w.DeleteToken(ctx, id))
+}
+
+func (q *queries) DeleteExpiredScopedTokens(ctx context.Context, now time.Time) (int64, error) {
+	n, err := q.w.DeleteExpiredScopedTokens(ctx, nullTS(&now))
+	return n, mapErr(err)
+}
+
+// --- trust credentials ---
+
+func trustFrom(c db.TrustCredential) store.TrustCredential {
+	return store.TrustCredential{ID: c.ID, Name: c.Name, ModuleID: c.ModuleID, UserID: c.UserID,
+		Provider: c.Provider, Issuer: c.Issuer, Audience: c.Audience, SubjectPattern: c.SubjectPattern,
+		Repository: c.Repository, RefPattern: c.RefPattern, Role: c.Role,
+		TokenTTL: time.Duration(c.TokenTtlSeconds) * time.Second, CreatedAt: fromTS(c.CreatedAt)}
+}
+
+func (q *queries) CreateTrustCredential(ctx context.Context, c store.TrustCredential) (store.TrustCredential, error) {
+	if c.ID == "" {
+		c.ID = newID()
+	}
+	c.CreatedAt = ts(c.CreatedAt)
+	c.TokenTTL = c.TokenTTL.Truncate(time.Second)
+	err := q.w.CreateTrustCredential(ctx, db.CreateTrustCredentialParams{ID: c.ID, Name: c.Name, ModuleID: c.ModuleID,
+		UserID: c.UserID, Provider: c.Provider, Issuer: c.Issuer, Audience: c.Audience,
+		SubjectPattern: c.SubjectPattern, Repository: c.Repository, RefPattern: c.RefPattern, Role: c.Role,
+		TokenTtlSeconds: int64(c.TokenTTL / time.Second), CreatedAt: c.CreatedAt.UnixMicro()})
+	return c, mapErr(err)
+}
+
+func (q *queries) GetTrustCredential(ctx context.Context, name string) (store.TrustCredential, error) {
+	c, err := q.r.GetTrustCredential(ctx, name)
+	return trustFrom(c), mapErr(err)
+}
+
+func (q *queries) ListTrustCredentials(ctx context.Context) ([]store.TrustCredential, error) {
+	rows, err := q.r.ListTrustCredentials(ctx)
+	return mapAll(rows, err, trustFrom)
+}
+
+func (q *queries) ListModuleTrustCredentials(ctx context.Context, moduleID string) ([]store.TrustCredential, error) {
+	rows, err := q.r.ListModuleTrustCredentials(ctx, moduleID)
+	return mapAll(rows, err, trustFrom)
+}
+
+func (q *queries) DeleteTrustCredential(ctx context.Context, name string) error {
+	return existing(q.w.DeleteTrustCredential(ctx, name))
 }
 
 // --- identities ---

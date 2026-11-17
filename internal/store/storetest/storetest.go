@@ -36,6 +36,8 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 		"LabelIdentity":         testLabelIdentity,
 		"BlobGC":                testBlobGC,
 		"RolesAndContributors":  testRolesAndContributors,
+		"TrustCredentials":      testTrustCredentials,
+		"ScopedTokens":          testScopedTokens,
 	}
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -669,4 +671,91 @@ func testRolesAndContributors(t *testing.T, s store.Store) {
 	if cs := must(s.ListUserContributions(ctx, a.ID)); len(cs) != 0 {
 		t.Fatalf("grants after module delete = %+v", cs)
 	}
+}
+
+func testTrustCredentials(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	_, m := seed(t, s)
+	u := must(s.CreateOwner(ctx, store.Owner{Name: "ci-bot", Type: store.OwnerUser}))
+	in := store.TrustCredential{Name: "gha", ModuleID: m.ID, UserID: u.ID, Provider: store.TrustGitHub,
+		Issuer: "https://token.actions.githubusercontent.com", Audience: "https://registry.example",
+		SubjectPattern: "repo:acme/api:*", Repository: "acme/api", RefPattern: "refs/heads/main",
+		Role: store.ContributorWrite, TokenTTL: 10 * time.Minute}
+	c := must(s.CreateTrustCredential(ctx, in))
+	if c.ID == "" || c.CreatedAt.IsZero() {
+		t.Fatalf("CreateTrustCredential = %+v", c)
+	}
+	got := must(s.GetTrustCredential(ctx, "gha"))
+	in.ID, in.CreatedAt = c.ID, c.CreatedAt
+	if got != in {
+		t.Fatalf("GetTrustCredential = %+v, want %+v", got, in)
+	}
+	_, err := s.CreateTrustCredential(ctx, in)
+	is(t, err, store.ErrConflict) // duplicate name
+	for _, bad := range []store.TrustCredential{
+		{Name: "x", ModuleID: "missing", UserID: u.ID, Provider: store.TrustGitHub, Role: store.ContributorRead},
+		{Name: "y", ModuleID: m.ID, UserID: "missing", Provider: store.TrustGitHub, Role: store.ContributorRead},
+		{Name: "z", ModuleID: m.ID, UserID: u.ID, Provider: "gitlab", Role: store.ContributorRead},
+		{Name: "w", ModuleID: m.ID, UserID: u.ID, Provider: store.TrustGitHub, Role: store.ContributorAdmin},
+	} {
+		_, err := s.CreateTrustCredential(ctx, bad)
+		is(t, err, store.ErrConflict)
+	}
+	in2 := in
+	in2.ID, in2.Name, in2.Provider = "", "k8s", store.TrustKubernetes
+	must(s.CreateTrustCredential(ctx, in2))
+	if cs := must(s.ListTrustCredentials(ctx)); len(cs) != 2 || cs[0].Name != "gha" || cs[1].Name != "k8s" {
+		t.Fatalf("ListTrustCredentials = %+v", cs)
+	}
+	if cs := must(s.ListModuleTrustCredentials(ctx, m.ID)); len(cs) != 2 {
+		t.Fatalf("ListModuleTrustCredentials = %+v", cs)
+	}
+	if err := s.DeleteTrustCredential(ctx, "k8s"); err != nil {
+		t.Fatal(err)
+	}
+	is(t, s.DeleteTrustCredential(ctx, "k8s"), store.ErrNotFound)
+	_, err = s.GetTrustCredential(ctx, "k8s")
+	is(t, err, store.ErrNotFound)
+
+	// Deleting the module drops its credentials.
+	if err := s.DeleteModule(ctx, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if cs := must(s.ListTrustCredentials(ctx)); len(cs) != 0 {
+		t.Fatalf("credentials after module delete = %+v", cs)
+	}
+}
+
+func testScopedTokens(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	o, m := seed(t, s)
+	now := time.Now()
+	past, future := now.Add(-time.Minute), now.Add(time.Hour)
+	tok := must(s.CreateToken(ctx, store.Token{OwnerID: o.ID, Name: "ci", Hash: "h1", ExpiresAt: &future,
+		ModuleID: m.ID, ModuleRole: store.ContributorWrite}))
+	if got := must(s.GetTokenByHash(ctx, "h1")); got.ModuleID != m.ID || got.ModuleRole != store.ContributorWrite || got.ID != tok.ID {
+		t.Fatalf("scoped token = %+v", got)
+	}
+	if got := must(s.CreateToken(ctx, store.Token{OwnerID: o.ID, Name: "plain", Hash: "h2", ExpiresAt: &past})); got.ModuleID != "" {
+		t.Fatalf("plain token = %+v", got)
+	}
+	must(s.CreateToken(ctx, store.Token{OwnerID: o.ID, Name: "old", Hash: "h3", ExpiresAt: &past, ModuleID: m.ID, ModuleRole: store.ContributorRead}))
+	_, err := s.CreateToken(ctx, store.Token{OwnerID: o.ID, Name: "bad", Hash: "h4", ModuleID: m.ID, ModuleRole: store.ContributorAdmin})
+	is(t, err, store.ErrConflict)
+	_, err = s.CreateToken(ctx, store.Token{OwnerID: o.ID, Name: "bad", Hash: "h5", ModuleID: "missing", ModuleRole: store.ContributorRead})
+	is(t, err, store.ErrConflict)
+
+	// Only expired scoped tokens are swept; expired unscoped ones stay listable.
+	if n := must(s.DeleteExpiredScopedTokens(ctx, now)); n != 1 {
+		t.Fatalf("DeleteExpiredScopedTokens = %d, want 1", n)
+	}
+	if ts := must(s.ListTokens(ctx, o.ID)); len(ts) != 2 {
+		t.Fatalf("tokens after sweep = %+v", ts)
+	}
+	// Deleting the module revokes its scoped tokens.
+	if err := s.DeleteModule(ctx, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.GetTokenByHash(ctx, "h1")
+	is(t, err, store.ErrNotFound)
 }

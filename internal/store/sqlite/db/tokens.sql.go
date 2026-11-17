@@ -11,8 +11,8 @@ import (
 )
 
 const createToken = `-- name: CreateToken :exec
-INSERT INTO tokens (id, owner_id, name, hash, created_at, expires_at, last_used_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO tokens (id, owner_id, name, hash, created_at, expires_at, last_used_at, module_id, module_role)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateTokenParams struct {
@@ -23,6 +23,8 @@ type CreateTokenParams struct {
 	CreatedAt  int64
 	ExpiresAt  sql.NullInt64
 	LastUsedAt sql.NullInt64
+	ModuleID   sql.NullString
+	ModuleRole string
 }
 
 func (q *Queries) CreateToken(ctx context.Context, arg CreateTokenParams) error {
@@ -34,8 +36,22 @@ func (q *Queries) CreateToken(ctx context.Context, arg CreateTokenParams) error 
 		arg.CreatedAt,
 		arg.ExpiresAt,
 		arg.LastUsedAt,
+		arg.ModuleID,
+		arg.ModuleRole,
 	)
 	return err
+}
+
+const deleteExpiredScopedTokens = `-- name: DeleteExpiredScopedTokens :execrows
+DELETE FROM tokens WHERE module_id IS NOT NULL AND expires_at IS NOT NULL AND expires_at <= ?
+`
+
+func (q *Queries) DeleteExpiredScopedTokens(ctx context.Context, expiresAt sql.NullInt64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteExpiredScopedTokens, expiresAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const deleteToken = `-- name: DeleteToken :execrows
@@ -51,7 +67,7 @@ func (q *Queries) DeleteToken(ctx context.Context, id string) (int64, error) {
 }
 
 const getTokenByHash = `-- name: GetTokenByHash :one
-SELECT id, owner_id, name, hash, created_at, expires_at, last_used_at FROM tokens WHERE hash = ?
+SELECT id, owner_id, name, hash, created_at, expires_at, last_used_at, module_id, module_role FROM tokens WHERE hash = ?
 `
 
 func (q *Queries) GetTokenByHash(ctx context.Context, hash string) (Token, error) {
@@ -65,12 +81,14 @@ func (q *Queries) GetTokenByHash(ctx context.Context, hash string) (Token, error
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.LastUsedAt,
+		&i.ModuleID,
+		&i.ModuleRole,
 	)
 	return i, err
 }
 
 const listTokens = `-- name: ListTokens :many
-SELECT id, owner_id, name, hash, created_at, expires_at, last_used_at FROM tokens WHERE owner_id = ? ORDER BY created_at, id
+SELECT id, owner_id, name, hash, created_at, expires_at, last_used_at, module_id, module_role FROM tokens WHERE owner_id = ? ORDER BY created_at, id
 `
 
 func (q *Queries) ListTokens(ctx context.Context, ownerID string) ([]Token, error) {
@@ -90,6 +108,8 @@ func (q *Queries) ListTokens(ctx context.Context, ownerID string) ([]Token, erro
 			&i.CreatedAt,
 			&i.ExpiresAt,
 			&i.LastUsedAt,
+			&i.ModuleID,
+			&i.ModuleRole,
 		); err != nil {
 			return nil, err
 		}

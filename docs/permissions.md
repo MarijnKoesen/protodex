@@ -101,10 +101,26 @@ The `buf` CLI has no commands for roles or contributors, so protodex does
 not serve an API for them (no `iam/v1` permission or contributor services
 are vendored).
 
+## Module-scoped CI tokens
+
+Tokens minted by a [CI trust credential](ci-oidc.md) (GitHub Actions OIDC,
+Kubernetes service accounts) act as the credential's user but are
+restricted further:
+
+- on their module, permission is capped at the credential's role (`read`
+  or `write`, never `admin`), and never exceeds the user's own permission;
+- every other module they see as an anonymous caller would (public
+  modules only);
+- they may call read procedures, `GetCurrentUser` and (with `write`) push
+  and label procedures, but not `CreateModules`, `TokenService` or any
+  admin procedure (`PermissionDenied`);
+- they expire after at most one hour and are revoked with the module or
+  the user.
+
 ## Error codes
 
 | Condition | Code |
 |-----------|------|
 | No token on a non-anonymous RPC | `Unauthenticated` |
 | Module (or dependency) not readable by the caller | `NotFound` |
-| Readable module, but missing write/admin permission; any write to a mirror module; creating under another user's or a mirror owner's namespace; a `viewer` calling a write RPC without any write grant; a non-admin calling an admin RPC | `PermissionDenied` |
+| Readable module, but missing write/admin permission; any write to a mirror module; creating under another user's or a mirror owner's namespace; a `viewer` calling a write RPC without any write grant; a non-admin calling an admin RPC; a module-scoped CI token calling a procedure it may not | `PermissionDenied` |

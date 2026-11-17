@@ -97,4 +97,22 @@ type Token struct {
 	CreatedAt  int64
 	ExpiresAt  sql.NullInt64
 	LastUsedAt sql.NullInt64
+	ModuleID   sql.NullString
+	ModuleRole string
+}
+
+type TrustCredential struct {
+	ID              string
+	Name            string
+	ModuleID        string
+	UserID          string
+	Provider        string
+	Issuer          string
+	Audience        string
+	SubjectPattern  string
+	Repository      string
+	RefPattern      string
+	Role            string
+	TokenTtlSeconds int64
+	CreatedAt       int64
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/marijnkoesen/protodex/internal/observability"
 	"github.com/marijnkoesen/protodex/internal/oidcauth"
 	"github.com/marijnkoesen/protodex/internal/store"
+	"github.com/marijnkoesen/protodex/internal/trust"
 	"github.com/marijnkoesen/protodex/internal/version"
 	"github.com/marijnkoesen/protodex/internal/webui"
 )
@@ -156,6 +157,12 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 	if o.oidc != nil {
 		o.oidc.Register(mux)
 	}
+	if o.ciTrust != nil {
+		if o.ciTrust.Limiter == nil {
+			o.ciTrust.Limiter = o.limiter
+		}
+		o.ciTrust.Register(mux)
+	}
 
 	mux.Handle("GET /metrics", obs.Metrics.Handler())
 
@@ -170,6 +177,7 @@ type serverOptions struct {
 	store   store.Store
 	limiter auth.Limiter
 	oidc    *oidcauth.Handler
+	ciTrust *trust.Exchanger
 }
 
 func newServerOptions(options []Option) serverOptions {
@@ -221,6 +229,10 @@ func WithLimiter(l auth.Limiter) Option { return func(o *serverOptions) { o.limi
 
 // WithOIDC mounts the OIDC login endpoints (/auth/login, /auth/callback).
 func WithOIDC(h *oidcauth.Handler) Option { return func(o *serverOptions) { o.oidc = h } }
+
+// WithCITrust mounts the CI token exchange endpoint (POST /auth/ci-token).
+// Unless the exchanger has its own Limiter, it uses the one of WithLimiter.
+func WithCITrust(e *trust.Exchanger) Option { return func(o *serverOptions) { o.ciTrust = e } }
 
 // NewHTTPServer returns an http.Server serving h over HTTP/1.1 and cleartext
 // HTTP/2 (h2c), with sensible timeouts.

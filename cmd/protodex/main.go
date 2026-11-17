@@ -27,6 +27,7 @@ import (
 	"github.com/marijnkoesen/protodex/internal/server"
 	"github.com/marijnkoesen/protodex/internal/store"
 	"github.com/marijnkoesen/protodex/internal/store/sqlite"
+	"github.com/marijnkoesen/protodex/internal/trust"
 	"github.com/marijnkoesen/protodex/internal/version"
 )
 
@@ -39,6 +40,8 @@ commands:
   owner      create, list or rename users, organizations and mirror owners;
              set user roles (viewer, member, admin)
   contributor  grant, revoke or list per-module contributor roles
+  trust      add, list or remove CI trust credentials (GitHub Actions OIDC,
+             Kubernetes service accounts; see docs/ci-oidc.md)
   migrate    apply (or "down": roll back one) database migrations
   version    print the version
 `
@@ -91,8 +94,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			if cfg.OIDC.Enabled() {
 				opts = append(opts, server.WithOIDC(oidcauth.New(cfg.OIDC, st, cfg.Logger(stderr))))
 			}
+			if cfg.CITrust.Enabled {
+				opts = append(opts, server.WithCITrust(trust.New(cfg.CITrust, st, cfg.Logger(stderr))))
+			}
 		} else if cfg.OIDC.Enabled() {
 			return errors.New("oidc requires db_path: logins are stored in the database")
+		} else if cfg.CITrust.Enabled {
+			return errors.New("ci_trust requires db_path: trust credentials are stored in the database")
 		}
 		ln, err := net.Listen("tcp", cfg.Addr)
 		if err != nil {
@@ -107,6 +115,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return ownerCmd(ctx, args[1:], os.Getenv, stdout, stderr)
 	case "contributor":
 		return contributorCmd(ctx, args[1:], os.Getenv, stdout, stderr)
+	case "trust":
+		return trustCmd(ctx, args[1:], os.Getenv, stdout, stderr)
 	case "version", "-version", "--version":
 		_, err := fmt.Fprintln(stdout, version.String())
 		return err
@@ -509,6 +519,102 @@ func contributorCmd(ctx context.Context, args []string, getenv func(string) stri
 		_, _ = fmt.Fprintln(tw, "USER\tROLE")
 		for _, c := range cs {
 			_, _ = fmt.Fprintf(tw, "%s\t%s\n", c.User.Name, c.Role)
+		}
+		return tw.Flush()
+	})
+}
+
+const trustUsage = `usage: protodex trust <action> [-db path] [flags] [args]
+
+CI trust credentials let a CI job exchange its platform identity token for a
+short-lived token of USER restricted to one module (see docs/ci-oidc.md).
+The server must enable ci_trust and trust the issuer.
+
+actions:
+  add [flags] NAME OWNER/MODULE USER  create a credential; USER needs a
+                                      contributor grant on the module
+  list [OWNER/MODULE]                 list credentials
+  remove NAME                         delete a credential
+
+flags of add:
+`
+
+// trustCmd implements `protodex trust`.
+func trustCmd(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		_, _ = fmt.Fprint(stderr, trustUsage)
+		return errors.New("trust: missing action")
+	}
+	action := args[0]
+	fs := flag.NewFlagSet("trust "+action, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() { _, _ = fmt.Fprint(stderr, trustUsage); fs.PrintDefaults() }
+	dbPath := fs.String("db", getenv("PROTODEX_DB_PATH"), "SQLite database path (env PROTODEX_DB_PATH)")
+	var spec trust.Spec
+	if action == "add" {
+		fs.StringVar(&spec.Provider, "provider", store.TrustGitHub, "identity provider: github or kubernetes")
+		fs.StringVar(&spec.Issuer, "issuer", "", "token issuer (default for github: "+config.GitHubActionsIssuer+"; required for kubernetes)")
+		fs.StringVar(&spec.Audience, "audience", "", "required audience (aud claim), e.g. the registry URL (required)")
+		fs.StringVar(&spec.Repository, "repository", "", "github: the OWNER/REPO the job must run in (required for github)")
+		fs.StringVar(&spec.Subject, "subject", "", "pattern for the sub claim; '*' matches anything, '?' one character\n(required for kubernetes: system:serviceaccount:NAMESPACE:NAME)")
+		fs.StringVar(&spec.Ref, "ref", "", "github: pattern for the ref claim, e.g. refs/heads/main or refs/tags/v*")
+		fs.StringVar(&spec.Role, "role", store.ContributorWrite, "role of minted tokens on the module: read or write")
+		fs.DurationVar(&spec.TTL, "ttl", 0, "lifetime of minted tokens, at most 1h (default: the server's ci_trust.token_ttl)")
+	}
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	rest := fs.Args()
+	switch {
+	case action == "help" || action == "-h" || action == "-help" || action == "--help":
+		_, err := fmt.Fprint(stdout, trustUsage)
+		return err
+	case action == "add" && len(rest) != 3:
+		fs.Usage()
+		return errors.New("trust add: want NAME, OWNER/MODULE and USER")
+	case action == "list" && len(rest) > 1:
+		return errors.New("trust list: want at most OWNER/MODULE")
+	case action == "remove" && len(rest) != 1:
+		return errors.New("trust remove: want NAME")
+	case action != "add" && action != "list" && action != "remove":
+		_, _ = fmt.Fprint(stderr, trustUsage)
+		return fmt.Errorf("trust: unknown action %q", action)
+	}
+	return withDB(ctx, "trust "+action, *dbPath, func(st store.Store) error {
+		switch action {
+		case "add":
+			spec.Name, spec.Module, spec.User = rest[0], rest[1], rest[2]
+			c, err := trust.Add(ctx, st, spec)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(stdout, "created trust credential %q: %s tokens from %s act as %q on %s (%s)\n",
+				c.Name, c.Provider, c.Issuer, spec.User, spec.Module, c.Role)
+			return err
+		case "remove":
+			if err := trust.Remove(ctx, st, rest[0]); err != nil {
+				return err
+			}
+			_, err := fmt.Fprintf(stdout, "removed trust credential %q (tokens it minted expire on their own)\n", rest[0])
+			return err
+		}
+		module := ""
+		if len(rest) == 1 {
+			module = rest[0]
+		}
+		cs, err := trust.List(ctx, st, module)
+		if err != nil {
+			return err
+		}
+		tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "NAME\tMODULE\tUSER\tROLE\tPROVIDER\tAUDIENCE\tREPOSITORY\tSUBJECT\tREF\tTTL")
+		for _, c := range cs {
+			ttl := "default"
+			if c.TokenTTL > 0 {
+				ttl = c.TokenTTL.String()
+			}
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", c.Name, c.Module, c.User, c.Role, c.Provider,
+				c.Audience, cmp.Or(c.Repository, "-"), cmp.Or(c.SubjectPattern, "-"), cmp.Or(c.RefPattern, "-"), ttl)
 		}
 		return tw.Flush()
 	})

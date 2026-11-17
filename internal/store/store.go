@@ -150,6 +150,40 @@ type Token struct {
 	CreatedAt  time.Time
 	ExpiresAt  *time.Time
 	LastUsedAt *time.Time
+	// ModuleID, when set, restricts the token to that one module (tokens
+	// minted by a TrustCredential). It then grants at most ModuleRole
+	// (ContributorRead or ContributorWrite) on it and nothing elsewhere.
+	ModuleID   string
+	ModuleRole string
+}
+
+// Trust credential providers.
+const (
+	TrustGitHub     = "github"
+	TrustKubernetes = "kubernetes"
+)
+
+// TrustCredential lets a CI workload exchange an identity token from a
+// trusted issuer for a short-lived token of UserID scoped to ModuleID, if
+// the token's claims match the configured rules (see package trust).
+type TrustCredential struct {
+	ID       string
+	Name     string // unique
+	ModuleID string
+	// UserID is the user the minted tokens act as.
+	UserID   string
+	Provider string // TrustGitHub or TrustKubernetes
+	Issuer   string
+	Audience string
+	// SubjectPattern, Repository and RefPattern are claim rules; empty
+	// rules are not checked (package trust requires enough of them).
+	SubjectPattern string
+	Repository     string
+	RefPattern     string
+	Role           string // ContributorRead or ContributorWrite
+	// TokenTTL is the lifetime of minted tokens; zero selects the default.
+	TokenTTL  time.Duration
+	CreatedAt time.Time
 }
 
 // Identity links an external (OIDC) subject to a user owner. Role is the
@@ -240,6 +274,17 @@ type Querier interface {
 	ListTokens(ctx context.Context, ownerID string) ([]Token, error)
 	TouchToken(ctx context.Context, id string, at time.Time) error
 	DeleteToken(ctx context.Context, id string) error
+	// DeleteExpiredScopedTokens deletes module-scoped tokens that expired
+	// at or before now, returning how many were deleted.
+	DeleteExpiredScopedTokens(ctx context.Context, now time.Time) (int64, error)
+
+	// CreateTrustCredential returns ErrConflict when the name is taken or
+	// the module or user does not exist.
+	CreateTrustCredential(ctx context.Context, c TrustCredential) (TrustCredential, error)
+	GetTrustCredential(ctx context.Context, name string) (TrustCredential, error)
+	ListTrustCredentials(ctx context.Context) ([]TrustCredential, error)                        // sorted by name
+	ListModuleTrustCredentials(ctx context.Context, moduleID string) ([]TrustCredential, error) // sorted by name
+	DeleteTrustCredential(ctx context.Context, name string) error                               // ErrNotFound if missing
 
 	CreateIdentity(ctx context.Context, i Identity) (Identity, error)
 	GetIdentity(ctx context.Context, issuer, subject string) (Identity, error)

@@ -86,6 +86,15 @@ func TestMigrateUpDownIdempotent(t *testing.T) {
 	if !hasColumn(t, s, "owners", "role") || !hasColumn(t, s, "module_contributors", "role") {
 		t.Fatal("00007 columns missing after up")
 	}
+	if !hasColumn(t, s, "trust_credentials", "audience") || !hasColumn(t, s, "tokens", "module_id") {
+		t.Fatal("00008 columns missing after up")
+	}
+	if err := s.Rollback(ctx); err != nil { // 00008: trust credentials, scoped tokens
+		t.Fatal(err)
+	}
+	if hasColumn(t, s, "trust_credentials", "audience") || hasColumn(t, s, "tokens", "module_id") || hasColumn(t, s, "tokens", "module_role") {
+		t.Fatal("00008 not rolled back cleanly")
+	}
 	if err := s.Rollback(ctx); err != nil { // 00007: roles and contributors
 		t.Fatal(err)
 	}
