@@ -19,6 +19,8 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 	t.Helper()
 	tests := map[string]func(*testing.T, store.Store){
 		"OwnersAndModules":      testOwnersAndModules,
+		"OwnerUniqueness":       testOwnerUniqueness,
+		"OwnerRename":           testOwnerRename,
 		"CommitsLabelsDeps":     testCommitsLabelsDeps,
 		"BlobsAndManifests":     testBlobsAndManifests,
 		"Tokens":                testTokens,
@@ -105,6 +107,103 @@ func testOwnersAndModules(t *testing.T, s store.Store) {
 	}
 	if os := must(s.ListOwners(ctx)); len(os) != 1 {
 		t.Fatalf("ListOwners = %+v", os)
+	}
+}
+
+func testOwnerUniqueness(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	u := must(s.CreateOwner(ctx, store.Owner{Name: "alice", Type: store.OwnerUser}))
+	if u.UpdatedAt.IsZero() || !u.UpdatedAt.Equal(u.CreatedAt) || u.Mirror {
+		t.Fatalf("CreateOwner = %+v", u)
+	}
+	m := must(s.CreateOwner(ctx, store.Owner{Name: "googleapis", Type: store.OwnerOrganization, Mirror: true}))
+	// Users, organizations and mirrors share one namespace.
+	for _, o := range []store.Owner{
+		{Name: "alice", Type: store.OwnerOrganization},
+		{Name: "alice", Type: store.OwnerUser},
+		{Name: "googleapis", Type: store.OwnerUser},
+		{Name: "googleapis", Type: store.OwnerOrganization},
+		{Name: "googleapis", Type: store.OwnerOrganization, Mirror: true},
+		{ID: u.ID, Name: "bob", Type: store.OwnerUser}, // duplicate id
+	} {
+		_, err := s.CreateOwner(ctx, o)
+		is(t, err, store.ErrConflict)
+	}
+	// Only organizations can be mirrors.
+	_, err := s.CreateOwner(ctx, store.Owner{Name: "carol", Type: store.OwnerUser, Mirror: true})
+	is(t, err, store.ErrConflict)
+
+	got := must(s.GetOwnerByID(ctx, m.ID))
+	if got.Name != "googleapis" || !got.Mirror || got.Type != store.OwnerOrganization || !got.UpdatedAt.Equal(m.UpdatedAt) {
+		t.Fatalf("GetOwnerByID = %+v, want %+v", got, m)
+	}
+	if got := must(s.GetOwner(ctx, "googleapis")); !got.Mirror {
+		t.Fatalf("GetOwner lost mirror flag: %+v", got)
+	}
+	_, err = s.GetOwnerByID(ctx, "missing")
+	is(t, err, store.ErrNotFound)
+	if os := must(s.ListOwners(ctx)); len(os) != 2 || os[0].Name != "alice" || os[1].Name != "googleapis" {
+		t.Fatalf("ListOwners = %+v", os)
+	}
+}
+
+func testOwnerRename(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	o, m := seed(t, s)
+	u := must(s.CreateOwner(ctx, store.Owner{Name: "alice", Type: store.OwnerUser}))
+	mirror := must(s.CreateOwner(ctx, store.Owner{Name: "googleapis", Type: store.OwnerOrganization, Mirror: true}))
+	tok := must(s.CreateToken(ctx, store.Token{OwnerID: u.ID, Name: "t", Hash: "h"}))
+
+	renamed := must(s.RenameOwner(ctx, o.ID, "acme-corp"))
+	if renamed.ID != o.ID || renamed.Name != "acme-corp" || renamed.Type != o.Type ||
+		!renamed.CreatedAt.Equal(o.CreatedAt) || renamed.UpdatedAt.Before(o.UpdatedAt) {
+		t.Fatalf("RenameOwner = %+v (was %+v)", renamed, o)
+	}
+	// The old name is free and gone; modules follow the owner id.
+	_, err := s.GetOwner(ctx, "acme")
+	is(t, err, store.ErrNotFound)
+	if got := must(s.GetOwner(ctx, "acme-corp")); got.ID != o.ID {
+		t.Fatalf("GetOwner(new name) = %+v", got)
+	}
+	if gm := must(s.GetModule(ctx, o.ID, "api")); gm.ID != m.ID {
+		t.Fatalf("module lost after rename: %+v", gm)
+	}
+
+	// Taken names conflict, whichever type holds them.
+	_, err = s.RenameOwner(ctx, o.ID, "alice")
+	is(t, err, store.ErrConflict)
+	_, err = s.RenameOwner(ctx, u.ID, "googleapis")
+	is(t, err, store.ErrConflict)
+	// Mirrors are pinned to their upstream name.
+	_, err = s.RenameOwner(ctx, mirror.ID, "gapis")
+	is(t, err, store.ErrConflict)
+	if got := must(s.GetOwnerByID(ctx, mirror.ID)); got.Name != "googleapis" {
+		t.Fatalf("mirror renamed: %+v", got)
+	}
+	_, err = s.RenameOwner(ctx, "missing", "x")
+	is(t, err, store.ErrNotFound)
+
+	// Renaming to the current name is a no-op; the old name can be reused.
+	must(s.RenameOwner(ctx, u.ID, "alice"))
+	must(s.CreateOwner(ctx, store.Owner{Name: "acme", Type: store.OwnerOrganization}))
+
+	// A renamed user's tokens still authenticate as that user.
+	ru := must(s.RenameOwner(ctx, u.ID, "alice2"))
+	if got := must(s.GetTokenByHash(ctx, "h")); got.ID != tok.ID || got.OwnerID != ru.ID {
+		t.Fatalf("token after rename = %+v", got)
+	}
+
+	// Renames inside a rolled-back transaction do not stick.
+	boom := errors.New("boom")
+	err = s.WithTx(ctx, func(q store.Querier) error {
+		if got := must(q.RenameOwner(ctx, u.ID, "temp")); got.Name != "temp" {
+			t.Errorf("in-tx rename = %+v", got)
+		}
+		return boom
+	})
+	is(t, err, boom)
+	if got := must(s.GetOwnerByID(ctx, u.ID)); got.Name != "alice2" {
+		t.Fatalf("rolled-back rename visible: %+v", got)
 	}
 }
 

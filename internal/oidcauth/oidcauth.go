@@ -404,7 +404,7 @@ func (h *Handler) provision(ctx context.Context, who Who) (secret string, owner 
 			if err := q.UpdateIdentity(ctx, ident); err != nil {
 				return err
 			}
-			if owner, err = auth.OwnerByID(ctx, q, ident.OwnerID); err != nil {
+			if owner, err = q.GetOwnerByID(ctx, ident.OwnerID); err != nil {
 				return err
 			}
 		case errors.Is(err, store.ErrNotFound):

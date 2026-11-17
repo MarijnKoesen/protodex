@@ -122,31 +122,13 @@ func (a *Authenticator) Authenticate(ctx context.Context, secret, clientKey stri
 	if tok.ExpiresAt != nil && !now.Before(*tok.ExpiresAt) {
 		return Identity{}, ErrInvalidToken
 	}
-	owner, err := a.ownerByID(ctx, tok.OwnerID)
+	owner, err := a.Store.GetOwnerByID(ctx, tok.OwnerID)
 	if err != nil {
 		return Identity{}, err
 	}
 	// Best effort: a failed bookkeeping write must not fail the request.
 	_ = a.Store.TouchToken(ctx, tok.ID, now)
 	return Identity{Owner: owner, Token: tok}, nil
-}
-
-func (a *Authenticator) ownerByID(ctx context.Context, id string) (store.Owner, error) {
-	return OwnerByID(ctx, a.Store, id)
-}
-
-// OwnerByID finds an owner by id (the store only indexes owners by name).
-func OwnerByID(ctx context.Context, q store.Querier, id string) (store.Owner, error) {
-	owners, err := q.ListOwners(ctx)
-	if err != nil {
-		return store.Owner{}, err
-	}
-	for _, o := range owners {
-		if o.ID == id {
-			return o, nil
-		}
-	}
-	return store.Owner{}, store.ErrNotFound
 }
 
 // Bootstrap creates the first user and an initial token when no user exists.
@@ -163,28 +145,41 @@ func Bootstrap(ctx context.Context, st store.Store, username, secret string) (ou
 	} else if !ValidSecretFormat(secret) {
 		return "", false, fmt.Errorf("auth: bootstrap: token must start with %q followed by at least %d bytes of base64url", Prefix, secretBytes)
 	}
-	err = st.WithTx(ctx, func(q store.Querier) error {
-		owners, err := q.ListOwners(ctx)
-		if err != nil {
-			return err
-		}
-		for _, o := range owners {
-			if o.Type == "user" {
-				return nil // already bootstrapped
-			}
-		}
-		u, err := q.CreateOwner(ctx, store.Owner{Name: username, Type: "user"})
-		if err != nil {
-			return err
-		}
-		if _, err := q.CreateToken(ctx, store.Token{OwnerID: u.ID, Name: "bootstrap", Hash: HashSecret(secret)}); err != nil {
-			return err
-		}
-		created = true
-		return nil
+	err = st.WithTx(ctx, func(q store.Querier) (err error) {
+		created, err = BootstrapIn(ctx, q, username, secret)
+		return err
 	})
 	if err != nil || !created {
 		return "", false, err
 	}
 	return secret, true, nil
+}
+
+// BootstrapIn is the transactional core of Bootstrap: within q it creates
+// username with a token for secret (which must be valid) unless a user
+// already exists. It lets callers bootstrap atomically with other writes.
+func BootstrapIn(ctx context.Context, q store.Querier, username, secret string) (created bool, err error) {
+	if username == "" {
+		return false, errors.New("auth: bootstrap: user name is required")
+	}
+	if !ValidSecretFormat(secret) {
+		return false, errors.New("auth: bootstrap: invalid token")
+	}
+	owners, err := q.ListOwners(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, o := range owners {
+		if o.Type == store.OwnerUser {
+			return false, nil // already bootstrapped
+		}
+	}
+	u, err := q.CreateOwner(ctx, store.Owner{Name: username, Type: store.OwnerUser})
+	if err != nil {
+		return false, err
+	}
+	if _, err := q.CreateToken(ctx, store.Token{OwnerID: u.ID, Name: "bootstrap", Hash: HashSecret(secret)}); err != nil {
+		return false, err
+	}
+	return true, nil
 }

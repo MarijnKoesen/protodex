@@ -18,12 +18,23 @@ var (
 	ErrConflict = errors.New("store: conflict")
 )
 
-// Owner is a user or organization that owns modules.
+// Owner types.
+const (
+	OwnerUser         = "user"
+	OwnerOrganization = "organization"
+)
+
+// Owner is a user or organization that owns modules. Names are unique across
+// all owners, whatever their type. IDs never change; names may be renamed.
 type Owner struct {
-	ID        string
-	Name      string
-	Type      string // "user" or "organization"
+	ID   string
+	Name string
+	Type string // OwnerUser or OwnerOrganization
+	// Mirror marks an organization that reserves an upstream owner name
+	// (e.g. googleapis) for mirrored modules. Mirrors cannot be renamed.
+	Mirror    bool
 	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Module is a repository of protobuf files.
@@ -108,7 +119,12 @@ type Identity struct {
 type Querier interface {
 	CreateOwner(ctx context.Context, o Owner) (Owner, error)
 	GetOwner(ctx context.Context, name string) (Owner, error)
-	ListOwners(ctx context.Context) ([]Owner, error)
+	GetOwnerByID(ctx context.Context, id string) (Owner, error)
+	ListOwners(ctx context.Context) ([]Owner, error) // sorted by name
+	// RenameOwner changes an owner's name, keeping its ID (and so its
+	// modules and tokens). It returns ErrNotFound for an unknown id and
+	// ErrConflict when the name is taken or the owner is a mirror.
+	RenameOwner(ctx context.Context, id, newName string) (Owner, error)
 
 	CreateModule(ctx context.Context, m Module) (Module, error)
 	GetModule(ctx context.Context, ownerID, name string) (Module, error)
