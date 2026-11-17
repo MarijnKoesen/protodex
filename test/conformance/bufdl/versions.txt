@@ -1,0 +1,15 @@
+# buf CLI versions in the conformance matrix, oldest (minimum supported)
+# first. "pr" marks the subset run on every pull request; the nightly run
+# covers all of them. Every version needs pinned checksums in checksums.txt
+# (go run ./test/conformance/cmd/fetchbuf pin VERSION).
+1.32.2 pr
+1.35.1
+1.40.1
+1.45.0
+1.50.1
+1.55.1
+1.57.2 pr
+1.60.0
+1.65.0
+1.70.0
+1.75.0 pr

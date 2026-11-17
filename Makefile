@@ -115,13 +115,23 @@ capture: ## Record buf CLI traffic per CLI version (needs docker + network)
 capture-matrix: ## Regenerate docs/behavior-spec/rpc-matrix.md from recordings
 	@{ cat docs/behavior-spec/rpc-matrix.header.md; $(GO) run ./test/capture/cmd/capture matrix -dir test/capture/out; } > docs/behavior-spec/rpc-matrix.md
 
+# buf CLI versions for `make conformance`: pr (the per-PR subset), all, or a
+# comma-separated list. See docs/compatibility.md.
+CONFORMANCE_VERSIONS ?= pr
+
+.PHONY: conformance
+conformance: ## Run the buf CLI conformance suite (downloads pinned, checksum-verified buf; CONFORMANCE_VERSIONS=pr|all|1.57.2,...)
+	PROTODEX_CONFORMANCE_BUF_VERSIONS=$(CONFORMANCE_VERSIONS) PROTODEX_CONFORMANCE_REPORT=$(CURDIR)/conformance-report.md \
+	  $(GO) test -count=1 -timeout 30m ./test/conformance/...
+	@cat conformance-report.md
+
 .PHONY: tools
 tools: ## Install golangci-lint at the pinned version
 	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 .PHONY: clean
 clean:
-	rm -rf $(BIN_DIR) coverage.out
+	rm -rf $(BIN_DIR) coverage.out conformance-report.md
 
 .PHONY: help
 help:
