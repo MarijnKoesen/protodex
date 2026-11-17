@@ -24,8 +24,8 @@ What exists today:
 ## Evaluation
 
 - **Client-side checks already cover the main case.** `buf breaking` runs in
-  CI against a registry module or git ref using only `ModuleService`,
-  `CommitService` and `DownloadService`, which protodex serves. Teams get
+  CI against a registry module or git ref using the module read
+  services protodex already serves (see [reads.md](../reads.md)). Teams get
   breaking-change gating without any server feature.
 - **No demand signal.** No issue, user report or plan item asks for
   server-enforced policy. The issue itself is labelled "Later, optional".
@@ -41,7 +41,8 @@ What exists today:
 
 Do not implement `policy/v1` or server-side breaking-change gates now. Keep
 `UploadService` unchanged. Document `buf breaking` against the registry in CI
-as the supported way to gate breaking changes.
+as the supported way to gate breaking changes; see
+[push.md](../push.md#gating-breaking-changes-in-ci).
 
 ## Revisit when
 
