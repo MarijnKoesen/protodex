@@ -83,9 +83,9 @@ func observeInterceptor(obs *observability.Observability) connect.UnaryIntercept
 
 // authInterceptor resolves "Authorization: Bearer <token>" to an identity.
 // Invalid, malformed or expired credentials are rejected as unauthenticated.
-// Requests without credentials are anonymous: they pass only for read-only
-// procedures (visibility is enforced by the permissions layer); everything
-// else, and all of TokenService, requires a token. With a nil authenticator
+// Requests without credentials are anonymous: they pass only for procedures
+// the policy table (permissions.go) marks anonymous; module visibility is
+// enforced by the handlers. With a nil authenticator
 // no authentication is performed.
 func authInterceptor(a *auth.Authenticator) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
@@ -116,19 +116,4 @@ func authInterceptor(a *auth.Authenticator) connect.UnaryInterceptorFunc {
 			return next(auth.WithIdentity(ctx, id), req)
 		}
 	}
-}
-
-// anonymousAllowed reports whether procedure is a read that may be served
-// without credentials (subject to module visibility checks elsewhere).
-func anonymousAllowed(procedure string) bool {
-	service, method, ok := strings.Cut(strings.TrimPrefix(procedure, "/"), "/")
-	if !ok || strings.HasSuffix(service, ".TokenService") {
-		return false
-	}
-	for _, p := range []string{"Get", "List", "Download", "Resolve"} {
-		if strings.HasPrefix(method, p) {
-			return true
-		}
-	}
-	return false
 }

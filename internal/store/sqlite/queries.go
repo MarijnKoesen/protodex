@@ -104,7 +104,7 @@ func mapAll[A, B any](in []A, err error, f func(A) B) ([]B, error) {
 // --- owners ---
 
 func ownerFrom(o db.Owner) store.Owner {
-	return store.Owner{ID: o.ID, Name: o.Name, Type: o.Type, Mirror: o.Mirror != 0,
+	return store.Owner{ID: o.ID, Name: o.Name, Type: o.Type, Mirror: o.Mirror != 0, Role: o.Role,
 		CreatedAt: fromTS(o.CreatedAt), UpdatedAt: fromTS(o.UpdatedAt)}
 }
 
@@ -117,7 +117,10 @@ func (q *queries) CreateOwner(ctx context.Context, o store.Owner) (store.Owner, 
 		o.UpdatedAt = o.CreatedAt
 	}
 	o.UpdatedAt = ts(o.UpdatedAt)
-	err := q.w.CreateOwner(ctx, db.CreateOwnerParams{ID: o.ID, Name: o.Name, Type: o.Type, Mirror: b2i(o.Mirror),
+	if o.Type == store.OwnerUser && o.Role == "" {
+		o.Role = store.RoleMember
+	}
+	err := q.w.CreateOwner(ctx, db.CreateOwnerParams{ID: o.ID, Name: o.Name, Type: o.Type, Mirror: b2i(o.Mirror), Role: o.Role,
 		CreatedAt: o.CreatedAt.UnixMicro(), UpdatedAt: o.UpdatedAt.UnixMicro()})
 	return o, mapErr(err)
 }
@@ -151,6 +154,50 @@ func (q *queries) RenameOwner(ctx context.Context, id, newName string) (store.Ow
 		return store.Owner{}, fmt.Errorf("%w: mirror owner %q cannot be renamed", store.ErrConflict, o.Name)
 	}
 	return ownerFrom(o), nil
+}
+
+func (q *queries) SetOwnerRole(ctx context.Context, id, role string) error {
+	return existing(q.w.SetOwnerRole(ctx, db.SetOwnerRoleParams{Role: role, UpdatedAt: ts(time.Time{}).UnixMicro(), ID: id}))
+}
+
+// --- module contributors ---
+
+func contributorFrom(c db.ModuleContributor) store.ModuleContributor {
+	return store.ModuleContributor{ModuleID: c.ModuleID, UserID: c.UserID, Role: c.Role,
+		CreatedAt: fromTS(c.CreatedAt), UpdatedAt: fromTS(c.UpdatedAt)}
+}
+
+func (q *queries) SetModuleContributor(ctx context.Context, c store.ModuleContributor) (store.ModuleContributor, error) {
+	c.UpdatedAt = ts(c.UpdatedAt)
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = c.UpdatedAt
+	}
+	err := q.w.SetModuleContributor(ctx, db.SetModuleContributorParams{ModuleID: c.ModuleID, UserID: c.UserID,
+		Role: c.Role, CreatedAt: ts(c.CreatedAt).UnixMicro(), UpdatedAt: c.UpdatedAt.UnixMicro()})
+	if err != nil {
+		return store.ModuleContributor{}, mapErr(err)
+	}
+	row, err := q.w.GetModuleContributor(ctx, db.GetModuleContributorParams{ModuleID: c.ModuleID, UserID: c.UserID})
+	return contributorFrom(row), mapErr(err)
+}
+
+func (q *queries) GetModuleContributor(ctx context.Context, moduleID, userID string) (store.ModuleContributor, error) {
+	c, err := q.r.GetModuleContributor(ctx, db.GetModuleContributorParams{ModuleID: moduleID, UserID: userID})
+	return contributorFrom(c), mapErr(err)
+}
+
+func (q *queries) ListModuleContributors(ctx context.Context, moduleID string) ([]store.ModuleContributor, error) {
+	rows, err := q.r.ListModuleContributors(ctx, moduleID)
+	return mapAll(rows, err, contributorFrom)
+}
+
+func (q *queries) ListUserContributions(ctx context.Context, userID string) ([]store.ModuleContributor, error) {
+	rows, err := q.r.ListUserContributions(ctx, userID)
+	return mapAll(rows, err, contributorFrom)
+}
+
+func (q *queries) DeleteModuleContributor(ctx context.Context, moduleID, userID string) error {
+	return existing(q.w.DeleteModuleContributor(ctx, db.DeleteModuleContributorParams{ModuleID: moduleID, UserID: userID}))
 }
 
 // --- modules ---

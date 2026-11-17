@@ -407,8 +407,15 @@ func (h *Handler) provision(ctx context.Context, who Who) (secret string, owner 
 			if owner, err = q.GetOwnerByID(ctx, ident.OwnerID); err != nil {
 				return err
 			}
+			// The IdP is the source of truth for the instance role.
+			if owner.Role != who.Role {
+				if err := q.SetOwnerRole(ctx, owner.ID, who.Role); err != nil {
+					return err
+				}
+				owner.Role = who.Role
+			}
 		case errors.Is(err, store.ErrNotFound):
-			if owner, err = h.createUser(ctx, q, who.Username); err != nil {
+			if owner, err = h.createUser(ctx, q, who.Username, who.Role); err != nil {
 				return err
 			}
 			if _, err = q.CreateIdentity(ctx, store.Identity{Issuer: who.Issuer, Subject: who.Subject, OwnerID: owner.ID,
@@ -428,7 +435,7 @@ func (h *Handler) provision(ctx context.Context, who Who) (secret string, owner 
 // createUser creates a user owner, suffixing the name on conflict. Existing
 // owners are never linked to by name: a new login must not take over another
 // account.
-func (h *Handler) createUser(ctx context.Context, q store.Querier, base string) (store.Owner, error) {
+func (h *Handler) createUser(ctx context.Context, q store.Querier, base, role string) (store.Owner, error) {
 	for i := range 8 {
 		name := base
 		if i > 0 {
@@ -438,7 +445,7 @@ func (h *Handler) createUser(ctx context.Context, q store.Querier, base string) 
 			}
 			name = base + "-" + hex.EncodeToString(b[:])
 		}
-		o, err := q.CreateOwner(ctx, store.Owner{Name: name, Type: "user"})
+		o, err := q.CreateOwner(ctx, store.Owner{Name: name, Type: store.OwnerUser, Role: role})
 		if !errors.Is(err, store.ErrConflict) {
 			return o, err
 		}

@@ -21,6 +21,7 @@ import (
 	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/blob/fsblob"
 	"github.com/marijnkoesen/protodex/internal/config"
+	"github.com/marijnkoesen/protodex/internal/module"
 	"github.com/marijnkoesen/protodex/internal/oidcauth"
 	"github.com/marijnkoesen/protodex/internal/owner"
 	"github.com/marijnkoesen/protodex/internal/server"
@@ -35,7 +36,9 @@ commands:
   serve      run the registry server
   bootstrap  create the first admin user (printing its initial token), the
              instance organization and reserved mirror owners
-  owner      create, list or rename users, organizations and mirror owners
+  owner      create, list or rename users, organizations and mirror owners;
+             set user roles (viewer, member, admin)
+  contributor  grant, revoke or list per-module contributor roles
   migrate    apply (or "down": roll back one) database migrations
   version    print the version
 `
@@ -102,6 +105,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return migrate(ctx, args[1:], os.Getenv, stdout, stderr)
 	case "owner":
 		return ownerCmd(ctx, args[1:], os.Getenv, stdout, stderr)
+	case "contributor":
+		return contributorCmd(ctx, args[1:], os.Getenv, stdout, stderr)
 	case "version", "-version", "--version":
 		_, err := fmt.Fprintln(stdout, version.String())
 		return err
@@ -270,11 +275,14 @@ func kindLabel(k owner.Kind) string {
 const ownerUsage = `usage: protodex owner <action> [-db path] [args]
 
 actions:
-  create user NAME...    create users, printing an initial token for each
+  create [-role R] user NAME...
+                         create users (role viewer, member or admin; default
+                         member), printing an initial token for each
   create org NAME...     create organizations
   create mirror NAME...  reserve upstream owner names (e.g. googleapis) for mirrors
   list                   list all owners
   rename OLD NEW         rename a user or organization (mirrors cannot be renamed)
+  role USER ROLE         set a user's instance role: viewer (read-only), member or admin
 `
 
 // ownerCmd implements `protodex owner`.
@@ -288,10 +296,14 @@ func ownerCmd(ctx context.Context, args []string, getenv func(string) string, st
 	fs.SetOutput(stderr)
 	fs.Usage = func() { _, _ = fmt.Fprint(stderr, ownerUsage); fs.PrintDefaults() }
 	dbPath := fs.String("db", getenv("PROTODEX_DB_PATH"), "SQLite database path (env PROTODEX_DB_PATH)")
+	roleFlag := fs.String("role", "", "instance role of created users: viewer, member (default) or admin")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
 	rest := fs.Args()
+	if *roleFlag != "" && action != "create" {
+		return fmt.Errorf("owner %s: -role only applies to create", action)
+	}
 
 	var run func(st store.Store) error
 	switch action {
@@ -303,7 +315,16 @@ func ownerCmd(ctx context.Context, args []string, getenv func(string) string, st
 		if err != nil {
 			return fmt.Errorf("owner create: %w", err)
 		}
-		run = func(st store.Store) error { return createOwners(ctx, st, kind, rest[1:], stdout) }
+		role := store.RoleMember
+		if *roleFlag != "" {
+			if kind != owner.User {
+				return errors.New("owner create: -role only applies to users")
+			}
+			if role, err = owner.ParseRole(*roleFlag); err != nil {
+				return fmt.Errorf("owner create: %w", err)
+			}
+		}
+		run = func(st store.Store) error { return createOwners(ctx, st, kind, role, rest[1:], stdout) }
 	case "list":
 		if len(rest) != 0 {
 			return errors.New("owner list: takes no arguments")
@@ -321,6 +342,18 @@ func ownerCmd(ctx context.Context, args []string, getenv func(string) string, st
 			_, err = fmt.Fprintf(stdout, "renamed %s %q to %q\n", kindLabel(owner.KindOf(o)), rest[0], o.Name)
 			return err
 		}
+	case "role":
+		if len(rest) != 2 {
+			return errors.New("owner role: want USER and ROLE (viewer, member or admin)")
+		}
+		run = func(st store.Store) error {
+			o, err := owner.SetRole(ctx, st, rest[0], rest[1])
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(stdout, "user %q is now %s\n", o.Name, o.Role)
+			return err
+		}
 	case "help", "-h", "-help", "--help":
 		_, err := fmt.Fprint(stdout, ownerUsage)
 		return err
@@ -329,26 +362,32 @@ func ownerCmd(ctx context.Context, args []string, getenv func(string) string, st
 		return fmt.Errorf("owner: unknown action %q", action)
 	}
 
-	if *dbPath == "" {
-		return fmt.Errorf("owner %s: -db or PROTODEX_DB_PATH is required", action)
+	return withDB(ctx, "owner "+action, *dbPath, run)
+}
+
+// withDB opens and migrates the database at path and runs fn on it,
+// prefixing errors with what.
+func withDB(ctx context.Context, what, path string, fn func(store.Store) error) error {
+	if path == "" {
+		return fmt.Errorf("%s: -db or PROTODEX_DB_PATH is required", what)
 	}
-	st, err := sqlite.Open(*dbPath)
+	st, err := sqlite.Open(path)
 	if err != nil {
-		return fmt.Errorf("owner %s: %w", action, err)
+		return fmt.Errorf("%s: %w", what, err)
 	}
 	defer func() { _ = st.Close() }()
 	if err := st.Migrate(ctx); err != nil {
-		return fmt.Errorf("owner %s: %w", action, err)
+		return fmt.Errorf("%s: %w", what, err)
 	}
-	if err := run(st); err != nil {
-		return fmt.Errorf("owner %s: %w", action, err)
+	if err := fn(st); err != nil {
+		return fmt.Errorf("%s: %w", what, err)
 	}
 	return nil
 }
 
 // createOwners creates all names atomically. Users get an initial token,
 // printed once.
-func createOwners(ctx context.Context, st store.Store, kind owner.Kind, names []string, stdout io.Writer) error {
+func createOwners(ctx context.Context, st store.Store, kind owner.Kind, role string, names []string, stdout io.Writer) error {
 	for _, n := range names {
 		if err := owner.ValidateName(kind, n); err != nil {
 			return err
@@ -364,6 +403,11 @@ func createOwners(ctx context.Context, st store.Store, kind owner.Kind, names []
 			if kind != owner.User {
 				continue
 			}
+			if role != o.Role {
+				if err := q.SetOwnerRole(ctx, o.ID, role); err != nil {
+					return err
+				}
+			}
 			if secrets[i], err = auth.GenerateSecret(); err != nil {
 				return err
 			}
@@ -378,7 +422,7 @@ func createOwners(ctx context.Context, st store.Store, kind owner.Kind, names []
 	}
 	for i, n := range names {
 		if kind == owner.User {
-			_, err = fmt.Fprintf(stdout, "created user %q. Token (shown once, store it safely):\n%s\n", n, secrets[i])
+			_, err = fmt.Fprintf(stdout, "created user %q (%s). Token (shown once, store it safely):\n%s\n", n, role, secrets[i])
 		} else {
 			_, err = fmt.Fprintf(stdout, "created %s %q\n", kindLabel(kind), n)
 		}
@@ -395,9 +439,77 @@ func listOwners(ctx context.Context, st store.Store, stdout io.Writer) error {
 		return err
 	}
 	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "NAME\tKIND\tID\tCREATED")
+	_, _ = fmt.Fprintln(tw, "NAME\tKIND\tROLE\tID\tCREATED")
 	for _, o := range owners {
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", o.Name, kindLabel(owner.KindOf(o)), o.ID, o.CreatedAt.Format(time.RFC3339))
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", o.Name, kindLabel(owner.KindOf(o)), cmp.Or(o.Role, "-"), o.ID, o.CreatedAt.Format(time.RFC3339))
 	}
 	return tw.Flush()
+}
+
+const contributorUsage = `usage: protodex contributor <action> [-db path] OWNER/MODULE [args]
+
+actions:
+  add OWNER/MODULE USER ROLE  grant USER read, write or admin on the module
+                              (replaces an existing grant)
+  remove OWNER/MODULE USER    revoke USER's grant
+  list OWNER/MODULE           list the module's contributors
+`
+
+// contributorCmd implements `protodex contributor`.
+func contributorCmd(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		_, _ = fmt.Fprint(stderr, contributorUsage)
+		return errors.New("contributor: missing action")
+	}
+	action := args[0]
+	fs := flag.NewFlagSet("contributor "+action, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() { _, _ = fmt.Fprint(stderr, contributorUsage); fs.PrintDefaults() }
+	dbPath := fs.String("db", getenv("PROTODEX_DB_PATH"), "SQLite database path (env PROTODEX_DB_PATH)")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	rest := fs.Args()
+	want := map[string]int{"add": 3, "remove": 2, "list": 1}
+	switch n, ok := want[action]; {
+	case action == "help" || action == "-h" || action == "-help" || action == "--help":
+		_, err := fmt.Fprint(stdout, contributorUsage)
+		return err
+	case !ok:
+		_, _ = fmt.Fprint(stderr, contributorUsage)
+		return fmt.Errorf("contributor: unknown action %q", action)
+	case len(rest) != n:
+		_, _ = fmt.Fprint(stderr, contributorUsage)
+		return fmt.Errorf("contributor %s: want %d arguments", action, n)
+	}
+	ownerName, moduleName, ok := strings.Cut(rest[0], "/")
+	if !ok || ownerName == "" || moduleName == "" || strings.Contains(moduleName, "/") {
+		return fmt.Errorf("contributor %s: want OWNER/MODULE, got %q", action, rest[0])
+	}
+	return withDB(ctx, "contributor "+action, *dbPath, func(st store.Store) error {
+		switch action {
+		case "add":
+			if err := module.Grant(ctx, st, ownerName, moduleName, rest[1], rest[2]); err != nil {
+				return err
+			}
+			_, err := fmt.Fprintf(stdout, "granted %s on %s to %q\n", rest[2], rest[0], rest[1])
+			return err
+		case "remove":
+			if err := module.Revoke(ctx, st, ownerName, moduleName, rest[1]); err != nil {
+				return err
+			}
+			_, err := fmt.Fprintf(stdout, "revoked %q on %s\n", rest[1], rest[0])
+			return err
+		}
+		cs, err := module.Contributors(ctx, st, ownerName, moduleName)
+		if err != nil {
+			return err
+		}
+		tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "USER\tROLE")
+		for _, c := range cs {
+			_, _ = fmt.Fprintf(tw, "%s\t%s\n", c.User.Name, c.Role)
+		}
+		return tw.Flush()
+	})
 }

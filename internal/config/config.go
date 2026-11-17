@@ -96,7 +96,7 @@ type OIDC struct {
 // Enabled reports whether OIDC login is configured.
 func (o OIDC) Enabled() bool { return o.Issuer != "" }
 
-// Roles in ascending order of privilege.
+// Roles in ascending order of privilege (the same values as store.Role*).
 const (
 	RoleViewer = "viewer"
 	RoleMember = "member"

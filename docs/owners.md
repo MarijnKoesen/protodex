@@ -7,7 +7,8 @@ any number of owners, so extra organizations (teams, namespaces) and
 **mirror owners** can coexist.
 
 - **Users** authenticate with tokens and can own modules. Names: 1-32
-  characters.
+  characters. Each user has an instance role (`viewer`, `member` or
+  `admin`; see [permissions.md](permissions.md)).
 - **Organizations** own shared modules. Names: 1-48 characters.
 - **Mirror owners** are organizations that reserve an upstream owner name such
   as `googleapis` or `bufbuild`, so mirrored modules keep their upstream path
@@ -28,7 +29,7 @@ tokens; the old name becomes free (there is no redirect).
 protodex bootstrap -db protodex.db -user admin -org acme -mirror-owners googleapis,bufbuild
 ```
 
-Creates the first user (printing its token once), the instance organization
+Creates the first user, an instance `admin` (printing its token once), the instance organization
 and the mirror owners. Rerunning is safe: existing owners of the same kind
 are left alone, and a name held by another kind of owner is an error.
 
@@ -44,6 +45,8 @@ are left alone, and a name held by another kind of owner is an error.
 
 ```sh
 protodex owner create -db protodex.db user alice bob   # prints a token per user
+protodex owner create -db protodex.db -role viewer user auditor
+protodex owner role   -db protodex.db alice admin       # viewer, member or admin
 protodex owner create -db protodex.db org platform
 protodex owner create -db protodex.db mirror grpc-ecosystem
 protodex owner list   -db protodex.db
@@ -61,12 +64,13 @@ With a database configured, the server answers:
 | RPC | Behaviour |
 |-----|-----------|
 | `OwnerService.GetOwners` | Resolves owner names/IDs to users or organizations; any unknown owner is `NotFound`. |
-| `UserService.GetUsers`, `GetCurrentUser`, `ListUsers` | `GetCurrentUser` needs a token. Users are reported as standard and active. |
+| `UserService.GetUsers`, `GetCurrentUser`, `ListUsers` | `GetCurrentUser` needs a token. Users are reported as standard and active; admins with instance role `ADMIN`, members and viewers as `MEMBER`. `ListUsers` filters on `has_roles`. |
 | `OrganizationService.GetOrganizations`, `ListOrganizations` | Mirror owners are listed as organizations. |
 
 Reads work anonymously. List RPCs page with `page_size` (max 250) and an
 opaque `page_token`. Filtering by organization membership (`ListUsers`
-`organization_refs`, `ListOrganizations` `user_refs`) or by instance role is
-not modeled yet and returns `Unimplemented`. Creating, updating and deleting
-users and organizations over the API, and organization settings, return
-`Unimplemented`: use the `protodex owner` command.
+`organization_refs`, `ListOrganizations` `user_refs`) is not modeled yet and
+returns `Unimplemented`. Creating, updating and deleting users and
+organizations over the API, and organization settings, are reserved for
+instance admins and then return `Unimplemented`: use the `protodex owner`
+command.
