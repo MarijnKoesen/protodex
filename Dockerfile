@@ -13,5 +13,5 @@ RUN CGO_ENABLED=0 go build -trimpath \
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/protodex /protodex
-USER nonroot:nonroot
+USER 65532:65532
 ENTRYPOINT ["/protodex"]
