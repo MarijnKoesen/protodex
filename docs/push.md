@@ -36,6 +36,18 @@ The module must exist (`buf registry module create`); push does not create it.
   sends transitive dependencies too, and all of them are recorded.
 - Pushed `source_control_url` is accepted but not stored yet.
 
+## Gating breaking changes in CI
+
+The server does not reject breaking pushes (see
+[ADR 0002](adr/0002-policy-apis-and-breaking-change-gates.md)). Check in CI
+before `buf push`, comparing against the module's latest commit on the
+registry:
+
+```sh
+buf breaking --against registry.example.com/acme/weather
+buf breaking --against registry.example.com/acme/weather:v1   # a specific label
+```
+
 ## Limits and errors
 
 `max_push_files` (default 5000) and `max_push_file_bytes` (default 10 MiB)
