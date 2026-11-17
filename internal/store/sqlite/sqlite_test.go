@@ -99,12 +99,12 @@ func TestSymlinkAliasLockRefused(t *testing.T) {
 }
 
 func TestSymlinkedDirLockRefusedBeforeFileExists(t *testing.T) {
-	real := t.TempDir()
+	realDir := t.TempDir()
 	link := filepath.Join(t.TempDir(), "dirlink")
-	if err := os.Symlink(real, link); err != nil {
+	if err := os.Symlink(realDir, link); err != nil {
 		t.Skip("symlinks unavailable:", err)
 	}
-	s := open(t, filepath.Join(real, "p.db"))
+	s := open(t, filepath.Join(realDir, "p.db"))
 	defer func() { _ = s.Close() }()
 	if _, err := Open(filepath.Join(link, "p.db")); !errors.Is(err, ErrLocked) {
 		t.Fatalf("open via symlinked dir: err = %v, want ErrLocked", err)
