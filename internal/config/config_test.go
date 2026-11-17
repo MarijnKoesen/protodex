@@ -114,3 +114,32 @@ func TestOIDCInvalid(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestGCConfig(t *testing.T) {
+	cfg, err := Load(nil, env(nil), io.Discard)
+	if err != nil || time.Duration(cfg.GCInterval) != time.Hour || time.Duration(cfg.GCGracePeriod) != 24*time.Hour || cfg.GCDryRun {
+		t.Fatalf("defaults: %+v %v", cfg, err)
+	}
+	p := filepath.Join(t.TempDir(), "c.json")
+	if err := os.WriteFile(p, []byte(`{"gc_interval":"0s","gc_grace_period":"2h","gc_dry_run":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load([]string{"-config", p}, env(map[string]string{"PROTODEX_GC_GRACE_PERIOD": "3h"}), io.Discard)
+	if err != nil || cfg.GCInterval != 0 || time.Duration(cfg.GCGracePeriod) != 3*time.Hour || !cfg.GCDryRun {
+		t.Fatalf("file+env: %+v %v", cfg, err)
+	}
+	cfg, err = Load(nil, env(map[string]string{"PROTODEX_GC_INTERVAL": "10m", "PROTODEX_GC_DRY_RUN": "false"}), io.Discard)
+	if err != nil || time.Duration(cfg.GCInterval) != 10*time.Minute || cfg.GCDryRun {
+		t.Fatalf("env: %+v %v", cfg, err)
+	}
+	for _, e := range []map[string]string{
+		{"PROTODEX_GC_INTERVAL": "soon"},
+		{"PROTODEX_GC_INTERVAL": "-1m"},
+		{"PROTODEX_GC_GRACE_PERIOD": "0s"},
+		{"PROTODEX_GC_DRY_RUN": "maybe"},
+	} {
+		if _, err := Load(nil, env(e), io.Discard); err == nil {
+			t.Errorf("%v: expected error", e)
+		}
+	}
+}

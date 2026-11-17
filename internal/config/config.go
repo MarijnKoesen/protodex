@@ -39,6 +39,15 @@ type Config struct {
 	// the defaults (5000 files, 10 MiB per file).
 	MaxPushFiles     int   `json:"max_push_files"`
 	MaxPushFileBytes int64 `json:"max_push_file_bytes"`
+	// GCInterval is how often unreferenced blobs are garbage-collected
+	// (only with db_path). "0s" disables the collector. Default 1h.
+	GCInterval Duration `json:"gc_interval"`
+	// GCGracePeriod is the minimum age of an unreferenced blob before it is
+	// deleted. Default 24h.
+	GCGracePeriod Duration `json:"gc_grace_period"`
+	// GCDryRun logs and counts what garbage collection would delete without
+	// deleting anything.
+	GCDryRun bool `json:"gc_dry_run"`
 	// ShutdownTimeout bounds graceful shutdown.
 	ShutdownTimeout Duration `json:"shutdown_timeout"`
 	// TracingEnabled turns on OpenTelemetry tracing with an OTLP/HTTP exporter.
@@ -163,6 +172,8 @@ func Default() Config {
 		LogFormat:       "text",
 		MaxRequestBytes: 64 << 20,
 		ShutdownTimeout: Duration(30 * time.Second),
+		GCInterval:      Duration(time.Hour),
+		GCGracePeriod:   Duration(24 * time.Hour),
 		OIDC: OIDC{
 			Scopes:      []string{"profile", "email", "groups"},
 			GroupsClaim: "groups",
@@ -271,6 +282,25 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		}
 		cfg.ShutdownTimeout = Duration(d)
 	}
+	for _, e := range []struct {
+		name string
+		dst  *Duration
+	}{{"PROTODEX_GC_INTERVAL", &cfg.GCInterval}, {"PROTODEX_GC_GRACE_PERIOD", &cfg.GCGracePeriod}} {
+		if v := getenv(e.name); v != "" {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return fmt.Errorf("%s: %w", e.name, err)
+			}
+			*e.dst = Duration(d)
+		}
+	}
+	if v := getenv("PROTODEX_GC_DRY_RUN"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("PROTODEX_GC_DRY_RUN: %w", err)
+		}
+		cfg.GCDryRun = b
+	}
 	if v := getenv("PROTODEX_TRACING_ENABLED"); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
@@ -310,6 +340,12 @@ func (c Config) Validate() error {
 	}
 	if c.MaxPushFiles < 0 || c.MaxPushFileBytes < 0 {
 		errs = append(errs, errors.New("max_push_files and max_push_file_bytes must not be negative"))
+	}
+	if c.GCInterval < 0 {
+		errs = append(errs, errors.New("gc_interval must not be negative (0s disables garbage collection)"))
+	}
+	if c.GCGracePeriod <= 0 {
+		errs = append(errs, errors.New("gc_grace_period must be positive"))
 	}
 	if c.ShutdownTimeout <= 0 {
 		errs = append(errs, errors.New("shutdown_timeout must be positive"))

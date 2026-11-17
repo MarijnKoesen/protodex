@@ -58,6 +58,51 @@ func Run(t *testing.T, f Factory) {
 		}
 	})
 
+	t.Run("list", func(t *testing.T) {
+		s := f(t, 0)
+		l, ok := s.(blob.Lister)
+		if !ok {
+			t.Skip("store does not implement blob.Lister")
+		}
+		want := map[blob.Digest]int64{}
+		for _, data := range []string{"one", "two!", ""} {
+			d := blob.DigestOf([]byte(data))
+			if err := s.Put(ctx, d, bytes.NewReader([]byte(data))); err != nil {
+				t.Fatal(err)
+			}
+			want[d] = int64(len(data))
+		}
+		gone := blob.DigestOf([]byte("two!"))
+		if err := s.Delete(ctx, gone); err != nil {
+			t.Fatal(err)
+		}
+		delete(want, gone)
+		got := map[blob.Digest]int64{}
+		before := time.Now().Add(-time.Hour)
+		err := l.List(ctx, func(i blob.Info) error {
+			if i.ModTime.Before(before) {
+				t.Errorf("%s: ModTime %v is too old", i.Digest, i.ModTime)
+			}
+			got[i.Digest] = i.Size
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != len(want) {
+			t.Fatalf("List = %v, want %v", got, want)
+		}
+		for d, n := range want {
+			if got[d] != n {
+				t.Fatalf("List = %v, want %v", got, want)
+			}
+		}
+		stop := errors.New("stop")
+		if err := l.List(ctx, func(blob.Info) error { return stop }); !errors.Is(err, stop) {
+			t.Fatalf("List error = %v, want the callback's error", err)
+		}
+	})
+
 	t.Run("get missing", func(t *testing.T) {
 		s := f(t, 0)
 		if _, err := s.Get(ctx, blob.DigestOf([]byte("nope"))); !errors.Is(err, blob.ErrNotFound) {

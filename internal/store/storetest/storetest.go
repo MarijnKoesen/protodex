@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -33,6 +34,7 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 		"SetManifestAtomic":     testManifestAtomic,
 		"ModuleUpdate":          testModuleUpdate,
 		"LabelIdentity":         testLabelIdentity,
+		"BlobGC":                testBlobGC,
 	}
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -298,6 +300,63 @@ func testBlobsAndManifests(t *testing.T, s store.Store) {
 		t.Fatalf("manifest not replaced: %+v", m2)
 	}
 	is(t, s.SetManifest(ctx, c.ID, []store.ManifestEntry{{Path: "x", BlobDigest: "sha256:none"}}), store.ErrConflict)
+}
+
+func testBlobGC(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	_, m := seed(t, s)
+	c := must(s.CreateCommit(ctx, store.Commit{ModuleID: m.ID, Digest: "b5:aa"}))
+	for _, d := range []string{"sha256:2", "sha256:1", "sha256:3"} {
+		if err := s.PutBlob(ctx, store.Blob{Digest: d, Size: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	es := []store.ManifestEntry{{Path: "a.proto", BlobDigest: "sha256:1"}, {Path: "b.proto", BlobDigest: "sha256:1"},
+		{Path: "c.proto", BlobDigest: "sha256:3"}}
+	if err := s.SetManifest(ctx, c.ID, es); err != nil {
+		t.Fatal(err)
+	}
+	if got := must(s.ListBlobDigests(ctx)); !slices.Equal(got, []string{"sha256:1", "sha256:2", "sha256:3"}) {
+		t.Fatalf("ListBlobDigests = %v", got)
+	}
+	if got := must(s.ListReferencedBlobDigests(ctx)); !slices.Equal(got, []string{"sha256:1", "sha256:3"}) {
+		t.Fatalf("ListReferencedBlobDigests = %v", got)
+	}
+	if !must(s.BlobReferenced(ctx, "sha256:1")) || must(s.BlobReferenced(ctx, "sha256:2")) {
+		t.Fatal("BlobReferenced wrong")
+	}
+	is(t, s.DeleteBlob(ctx, "sha256:1"), store.ErrConflict)
+	if err := s.DeleteBlob(ctx, "sha256:2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteBlob(ctx, "sha256:missing"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.GetBlob(ctx, "sha256:2")
+	is(t, err, store.ErrNotFound)
+	// Inside a transaction the check sees the transaction's own manifest.
+	err = s.WithTx(ctx, func(q store.Querier) error {
+		if err := q.SetManifest(ctx, c.ID, es[:1]); err != nil {
+			return err
+		}
+		if ref, err := q.BlobReferenced(ctx, "sha256:3"); err != nil || ref {
+			t.Errorf("BlobReferenced in tx = %v, %v", ref, err)
+		}
+		return q.DeleteBlob(ctx, "sha256:3")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Deleting the module drops its manifests: its blobs become unreferenced.
+	if err := s.DeleteModule(ctx, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := must(s.ListReferencedBlobDigests(ctx)); len(got) != 0 {
+		t.Fatalf("referenced after module delete = %v", got)
+	}
+	if err := s.DeleteBlob(ctx, "sha256:1"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func testTokens(t *testing.T, s store.Store) {

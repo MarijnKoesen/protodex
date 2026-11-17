@@ -21,7 +21,10 @@ type Store struct {
 	maxSize int64
 }
 
-var _ blob.Store = (*Store)(nil)
+var (
+	_ blob.Store  = (*Store)(nil)
+	_ blob.Lister = (*Store)(nil)
+)
 
 // New creates a store rooted at dir. maxSize <= 0 selects blob.DefaultMaxSize.
 func New(dir string, maxSize int64) (*Store, error) {
@@ -111,6 +114,42 @@ func (s *Store) Delete(_ context.Context, d blob.Digest) error {
 	}
 	if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
+	}
+	return nil
+}
+
+// List implements blob.Lister. Files that are not blobs (wrong place or
+// name) are skipped, and so are the in-progress uploads under tmp/.
+func (s *Store) List(ctx context.Context, fn func(blob.Info) error) error {
+	root := filepath.Join(s.root, "sha256")
+	err := filepath.WalkDir(root, func(p string, e fs.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil // removed concurrently, or nothing stored yet
+			}
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if e.IsDir() || !e.Type().IsRegular() {
+			return nil
+		}
+		d, perr := blob.ParseDigest("sha256:" + e.Name())
+		if perr != nil || filepath.Base(filepath.Dir(p)) != d.Hex()[:2] {
+			return nil
+		}
+		fi, err := e.Info()
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return fn(blob.Info{Digest: d, Size: fi.Size(), ModTime: fi.ModTime()})
+	})
+	if err != nil {
+		return fmt.Errorf("fsblob: list: %w", err)
 	}
 	return nil
 }

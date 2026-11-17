@@ -180,6 +180,16 @@ type Querier interface {
 	SetManifest(ctx context.Context, commitID string, entries []ManifestEntry) error
 	GetManifest(ctx context.Context, commitID string) ([]ManifestEntry, error) // sorted by path
 
+	// Blob garbage collection (see package gc). ListBlobDigests returns
+	// every blob row; ListReferencedBlobDigests the distinct digests some
+	// manifest references (both sorted). DeleteBlob removes a blob row only
+	// while no manifest references it, returning ErrConflict otherwise;
+	// deleting a missing row is not an error.
+	ListBlobDigests(ctx context.Context) ([]string, error)
+	ListReferencedBlobDigests(ctx context.Context) ([]string, error)
+	BlobReferenced(ctx context.Context, digest string) (bool, error)
+	DeleteBlob(ctx context.Context, digest string) error
+
 	CreateToken(ctx context.Context, t Token) (Token, error)
 	GetTokenByHash(ctx context.Context, hash string) (Token, error)
 	ListTokens(ctx context.Context, ownerID string) ([]Token, error)
