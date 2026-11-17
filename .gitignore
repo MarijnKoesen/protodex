@@ -5,3 +5,4 @@
 .idea/
 .vscode/
 test/capture/out/
+deploy/.env

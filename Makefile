@@ -87,7 +87,13 @@ vuln: ## Scan for known vulnerabilities
 
 .PHONY: docker
 docker: ## Build the container image (no push)
-	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE) .
+	docker build --build-arg VERSION=$(VERSION) \
+	  --build-arg REVISION=$$(git rev-parse HEAD 2>/dev/null || echo unknown) \
+	  -t $(IMAGE) .
+
+.PHONY: compose-config
+compose-config: ## Validate deploy/docker-compose.yaml (needs docker compose)
+	docker compose -f deploy/docker-compose.yaml config -q
 
 VERSIONS ?= $(shell cat test/capture/versions.txt)
 

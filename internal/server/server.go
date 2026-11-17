@@ -21,6 +21,7 @@ import (
 	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/config"
 	"github.com/marijnkoesen/protodex/internal/observability"
+	"github.com/marijnkoesen/protodex/internal/oidcauth"
 	"github.com/marijnkoesen/protodex/internal/store"
 	"github.com/marijnkoesen/protodex/internal/version"
 )
@@ -119,6 +120,10 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 	// No dependencies yet; readiness will gain a database check later.
 	mux.HandleFunc("GET /readyz", ok)
 
+	if o.oidc != nil {
+		o.oidc.Register(mux)
+	}
+
 	mux.Handle("GET /metrics", obs.Metrics.Handler())
 
 	return accessLog(log, obs, http.MaxBytesHandler(mux, maxRequestBytes))
@@ -127,6 +132,7 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 type serverOptions struct {
 	store   store.Store
 	limiter auth.Limiter
+	oidc    *oidcauth.Handler
 }
 
 // Option configures Handler and Serve.
@@ -138,6 +144,9 @@ func WithStore(st store.Store) Option { return func(o *serverOptions) { o.store 
 
 // WithLimiter sets the authentication rate-limit hook.
 func WithLimiter(l auth.Limiter) Option { return func(o *serverOptions) { o.limiter = l } }
+
+// WithOIDC mounts the OIDC login endpoints (/auth/login, /auth/callback).
+func WithOIDC(h *oidcauth.Handler) Option { return func(o *serverOptions) { o.oidc = h } }
 
 // NewHTTPServer returns an http.Server serving h over HTTP/1.1 and cleartext
 // HTTP/2 (h2c), with sensible timeouts.

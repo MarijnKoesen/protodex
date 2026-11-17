@@ -30,6 +30,16 @@ type CommitDep struct {
 	DepDigest   string
 }
 
+type Identity struct {
+	Issuer      string
+	Subject     string
+	OwnerID     string
+	Email       string
+	Role        string
+	CreatedAt   int64
+	LastLoginAt int64
+}
+
 type Label struct {
 	ModuleID  string
 	Name      string

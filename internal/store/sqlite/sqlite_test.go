@@ -68,14 +68,16 @@ func TestMigrateUpDownIdempotent(t *testing.T) {
 	if !hasColumn(t, s, "owners", "mirror") {
 		t.Fatal("owners.mirror missing after up")
 	}
-	if err := s.Rollback(ctx); err != nil { // 00002: drops the owner columns
+	if err := s.Rollback(ctx); err != nil { // 00003: drops the owner columns
 		t.Fatal(err)
 	}
-	if tableCount(t, s) != 1 || hasColumn(t, s, "owners", "mirror") {
-		t.Fatal("00002 not rolled back cleanly")
+	if hasColumn(t, s, "owners", "mirror") {
+		t.Fatal("00003 not rolled back cleanly")
 	}
-	if err := s.Rollback(ctx); err != nil { // 00001
-		t.Fatal(err)
+	for range 2 { // one step per remaining migration (init, identities)
+		if err := s.Rollback(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if tableCount(t, s) != 0 {
 		t.Fatal("owners table present after down")

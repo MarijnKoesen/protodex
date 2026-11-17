@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -17,7 +18,7 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg != Default() {
+	if !reflect.DeepEqual(cfg, Default()) {
 		t.Fatalf("got %+v", cfg)
 	}
 }
@@ -68,5 +69,48 @@ func TestTracingConfig(t *testing.T) {
 	}
 	if _, err := Load(nil, env(map[string]string{"PROTODEX_TRACING_ENABLED": "x"}), io.Discard); err == nil {
 		t.Error("expected parse error")
+	}
+}
+
+func TestOIDCConfig(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "c.json")
+	body := `{"oidc":{"issuer":"https://idp.example.com","client_id":"pd","redirect_url":"https://pd.example.com/auth/callback",
+	  "allowed_domains":["example.com"],"group_roles":{"admins":"admin"}}}`
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load([]string{"-config", p}, env(map[string]string{"PROTODEX_OIDC_CLIENT_SECRET": "s"}), io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.OIDC.Enabled() || cfg.OIDC.ClientSecret != "s" || cfg.OIDC.GroupsClaim != "groups" || cfg.OIDC.GroupRoles["admins"] != "admin" {
+		t.Fatalf("got %+v", cfg.OIDC)
+	}
+}
+
+func TestOIDCInvalid(t *testing.T) {
+	ok := Default().OIDC
+	ok.Issuer, ok.ClientID, ok.RedirectURL = "https://idp", "c", "https://pd/auth/callback"
+	ok.DefaultRole = "viewer"
+	for name, mod := range map[string]func(*OIDC){
+		"bad issuer":   func(o *OIDC) { o.Issuer = "idp" },
+		"no client id": func(o *OIDC) { o.ClientID = "" },
+		"bad redirect": func(o *OIDC) { o.RedirectURL = "/auth/callback" },
+		"bad role":     func(o *OIDC) { o.GroupRoles = map[string]string{"g": "root"} },
+		"bad default":  func(o *OIDC) { o.DefaultRole = "root" },
+		"nobody":       func(o *OIDC) { o.DefaultRole = "" },
+	} {
+		o := ok
+		mod(&o)
+		c := Default()
+		c.OIDC = o
+		if c.Validate() == nil {
+			t.Errorf("%s: want error", name)
+		}
+	}
+	c := Default()
+	c.OIDC = ok
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }

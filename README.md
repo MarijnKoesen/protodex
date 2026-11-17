@@ -16,6 +16,50 @@ endorsed by Buf Technologies, Inc. See [CONTRIBUTING.md](CONTRIBUTING.md#clean-r
 Early bootstrap. `protodex serve` runs a skeleton server: most MVP RPCs return `unimplemented`; with `-db` set, `TokenService`, the owner services (`OwnerService`, `UserService`, `OrganizationService` reads) and bearer-token auth are live (first run: `protodex bootstrap`; owners: [docs/owners.md](docs/owners.md)). Also `/healthz` and `/readyz`. The roadmap and analysis are in
 [`docs/plan.html`](docs/plan.html).
 
+## Quickstart
+
+```sh
+docker compose -f deploy/docker-compose.yaml up -d --build
+curl -fsS http://localhost:8080/healthz
+```
+
+Runs protodex with SeaweedFS and a SQLite volume. See
+[`deploy/README.md`](deploy/README.md) for settings, which parts are not
+functional yet, the container image and the signed release artifacts.
+
+## OIDC login
+
+Users can sign in through any OpenID Connect provider (Dex, Keycloak, Entra ID,
+Google). Browse to `/auth/login`; after the provider round-trip (authorization
+code + PKCE) the page shows a personal access token **once**, which the CLI
+uses as a bearer token (`buf registry login`). Requires `db_path`; run
+`protodex migrate` after upgrading.
+
+```json
+{
+  "db_path": "protodex.db",
+  "oidc": {
+    "issuer": "https://idp.example.com",
+    "client_id": "protodex",
+    "redirect_url": "https://registry.example.com/auth/callback",
+    "allowed_domains": ["example.com"],
+    "groups_claim": "groups",
+    "group_roles": {"registry-admins": "admin", "registry-users": "member"},
+    "default_role": "",
+    "token_ttl": "720h"
+  }
+}
+```
+
+The client secret comes from `PROTODEX_OIDC_CLIENT_SECRET`. Users are keyed by
+the stable `(issuer, subject)` pair, never by e-mail; a new login never takes
+over an existing account. `allowed_domains` requires a verified e-mail. The
+highest role among a user's groups (`viewer` < `member` < `admin`) is stored on
+each login; without a matching group, `default_role` applies, or login is
+refused if it is empty. Roles are recorded now and enforced by the upcoming
+permissions model. The Dex integration test runs when
+`PROTODEX_TEST_DEX_ISSUER` is set (CI job `oidc-dex`).
+
 ## Non-goals
 
 - Copying, decompiling or deriving from any non-public Buf server code,

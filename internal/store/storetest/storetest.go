@@ -24,6 +24,7 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 		"CommitsLabelsDeps":     testCommitsLabelsDeps,
 		"BlobsAndManifests":     testBlobsAndManifests,
 		"Tokens":                testTokens,
+		"Identities":            testIdentities,
 		"TxCommitRollback":      testTx,
 		"DeleteModuleCascades":  testDeleteModule,
 		"ConcurrentWriters":     testConcurrent,
@@ -324,6 +325,27 @@ func testTokens(t *testing.T, s store.Store) {
 	is(t, s.DeleteToken(ctx, tok.ID), store.ErrNotFound)
 	_, err = s.GetTokenByHash(ctx, "h1")
 	is(t, err, store.ErrNotFound)
+}
+
+func testIdentities(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	o, _ := seed(t, s)
+	_, err := s.GetIdentity(ctx, "https://idp", "sub1")
+	is(t, err, store.ErrNotFound)
+	id := must(s.CreateIdentity(ctx, store.Identity{Issuer: "https://idp", Subject: "sub1", OwnerID: o.ID, Email: "a@x.io", Role: "member"}))
+	_, err = s.CreateIdentity(ctx, id)
+	is(t, err, store.ErrConflict)
+	_, err = s.CreateIdentity(ctx, store.Identity{Issuer: "https://idp", Subject: "sub2", OwnerID: "nope", Role: "member"})
+	is(t, err, store.ErrConflict)
+	id.Email, id.Role, id.LastLoginAt = "b@x.io", "admin", time.Now().Add(time.Minute)
+	if err := s.UpdateIdentity(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	got := must(s.GetIdentity(ctx, "https://idp", "sub1"))
+	if got.Email != "b@x.io" || got.Role != "admin" || got.OwnerID != o.ID || !got.LastLoginAt.After(got.CreatedAt) {
+		t.Fatalf("identity = %+v", got)
+	}
+	is(t, s.UpdateIdentity(ctx, store.Identity{Issuer: "https://idp", Subject: "zzz"}), store.ErrNotFound)
 }
 
 func testTx(t *testing.T, s store.Store) {
