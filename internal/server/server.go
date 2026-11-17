@@ -18,14 +18,27 @@ import (
 	"github.com/marijnkoesen/protodex/gen/buf/registry/iam/v1/iamv1connect"
 	"github.com/marijnkoesen/protodex/gen/buf/registry/module/v1/modulev1connect"
 	"github.com/marijnkoesen/protodex/gen/buf/registry/owner/v1/ownerv1connect"
+	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/config"
 	"github.com/marijnkoesen/protodex/internal/observability"
+	"github.com/marijnkoesen/protodex/internal/store"
 	"github.com/marijnkoesen/protodex/internal/version"
 )
 
 // Handler builds the HTTP handler: all MVP services (currently Unimplemented),
 // plus /healthz, /readyz and /metrics. Request bodies are capped at maxRequestBytes.
-func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observability) http.Handler {
+//
+// Without WithStore no authentication is performed and TokenService stays
+// unimplemented.
+func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observability, options ...Option) http.Handler {
+	var o serverOptions
+	for _, f := range options {
+		f(&o)
+	}
+	var authn *auth.Authenticator
+	if o.store != nil {
+		authn = &auth.Authenticator{Store: o.store, Limiter: o.limiter}
+	}
 	opts := []connect.HandlerOption{
 		connect.WithReadMaxBytes(int(min(maxRequestBytes, int64(^uint(0)>>1)))),
 		// Panics in handlers or interceptors become Connect internal errors.
@@ -33,7 +46,7 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 		// Outermost first: observe, authenticate, then validate the request message.
 		connect.WithInterceptors(
 			observeInterceptor(obs),
-			authInterceptor(),
+			authInterceptor(authn),
 			validate.NewInterceptor(),
 		),
 	}
@@ -74,10 +87,18 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 			return ownerv1connect.NewUserServiceHandler(ownerv1connect.UnimplementedUserServiceHandler{}, opts...)
 		},
 		func() (string, http.Handler) {
-			return iamv1connect.NewTokenServiceHandler(iamv1connect.UnimplementedTokenServiceHandler{}, opts...)
+			if o.store == nil {
+				return iamv1connect.NewTokenServiceHandler(iamv1connect.UnimplementedTokenServiceHandler{}, opts...)
+			}
+			return iamv1connect.NewTokenServiceHandler(&tokenService{st: o.store}, opts...)
 		},
 	} {
 		path, h := reg()
+		mux.Handle(path, h)
+	}
+
+	if o.store != nil {
+		path, h := authnAlphaHandler(opts...)
 		mux.Handle(path, h)
 	}
 
@@ -93,6 +114,20 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 
 	return accessLog(log, obs, http.MaxBytesHandler(mux, maxRequestBytes))
 }
+
+type serverOptions struct {
+	store   store.Store
+	limiter auth.Limiter
+}
+
+// Option configures Handler and Serve.
+type Option func(*serverOptions)
+
+// WithStore enables token authentication and TokenService backed by st.
+func WithStore(st store.Store) Option { return func(o *serverOptions) { o.store = st } }
+
+// WithLimiter sets the authentication rate-limit hook.
+func WithLimiter(l auth.Limiter) Option { return func(o *serverOptions) { o.limiter = l } }
 
 // NewHTTPServer returns an http.Server serving h over HTTP/1.1 and cleartext
 // HTTP/2 (h2c), with sensible timeouts.
@@ -112,7 +147,7 @@ func NewHTTPServer(cfg config.Config, h http.Handler) *http.Server {
 
 // Serve serves on ln until ctx is cancelled, then shuts down gracefully
 // within cfg.ShutdownTimeout.
-func Serve(ctx context.Context, cfg config.Config, log *slog.Logger, ln net.Listener) error {
+func Serve(ctx context.Context, cfg config.Config, log *slog.Logger, ln net.Listener, options ...Option) error {
 	shutdownTracing, err := observability.SetupTracing(ctx, observability.TracingConfig{
 		Enabled:        cfg.TracingEnabled,
 		Endpoint:       cfg.OTLPEndpoint,
@@ -129,7 +164,7 @@ func Serve(ctx context.Context, cfg config.Config, log *slog.Logger, ln net.List
 		}
 	}()
 
-	srv := NewHTTPServer(cfg, Handler(log, cfg.MaxRequestBytes, observability.New()))
+	srv := NewHTTPServer(cfg, Handler(log, cfg.MaxRequestBytes, observability.New(), options...))
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()

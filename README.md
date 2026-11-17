@@ -13,7 +13,7 @@ endorsed by Buf Technologies, Inc. See [CONTRIBUTING.md](CONTRIBUTING.md#clean-r
 
 ## Status
 
-Early bootstrap. `protodex serve` runs a skeleton server: all MVP RPCs return `unimplemented`, plus `/healthz` and `/readyz`. The roadmap and analysis are in
+Early bootstrap. `protodex serve` runs a skeleton server: most MVP RPCs return `unimplemented`; with `-db` set, `TokenService` and bearer-token auth are live (first run: `protodex bootstrap`). Also `/healthz` and `/readyz`. The roadmap and analysis are in
 [`docs/plan.html`](docs/plan.html).
 
 ## Non-goals

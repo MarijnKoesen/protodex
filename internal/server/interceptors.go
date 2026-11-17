@@ -4,10 +4,12 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -17,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/observability"
 )
 
@@ -78,12 +81,54 @@ func observeInterceptor(obs *observability.Observability) connect.UnaryIntercept
 	}
 }
 
-// authInterceptor is a placeholder: it currently lets every request through.
-// Token authentication replaces it in a later change.
-func authInterceptor() connect.UnaryInterceptorFunc {
+// authInterceptor resolves "Authorization: Bearer <token>" to an identity.
+// Invalid, malformed or expired credentials are rejected as unauthenticated.
+// Requests without credentials are anonymous: they pass only for read-only
+// procedures (visibility is enforced by the permissions layer); everything
+// else, and all of TokenService, requires a token. With a nil authenticator
+// no authentication is performed.
+func authInterceptor(a *auth.Authenticator) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			return next(ctx, req)
+			if a == nil {
+				return next(ctx, req)
+			}
+			header := req.Header().Get("Authorization")
+			if header == "" {
+				if !anonymousAllowed(req.Spec().Procedure) {
+					return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
+				}
+				return next(ctx, req)
+			}
+			scheme, secret, ok := strings.Cut(header, " ")
+			if !ok || !strings.EqualFold(scheme, "Bearer") {
+				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid authorization header"))
+			}
+			id, err := a.Authenticate(ctx, strings.TrimSpace(secret), req.Peer().Addr)
+			switch {
+			case errors.Is(err, auth.ErrInvalidToken):
+				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid or expired token"))
+			case errors.Is(err, auth.ErrRateLimited):
+				return nil, connect.NewError(connect.CodeResourceExhausted, errors.New("too many authentication attempts"))
+			case err != nil:
+				return nil, connect.NewError(connect.CodeInternal, errors.New("internal error"))
+			}
+			return next(auth.WithIdentity(ctx, id), req)
 		}
 	}
+}
+
+// anonymousAllowed reports whether procedure is a read that may be served
+// without credentials (subject to module visibility checks elsewhere).
+func anonymousAllowed(procedure string) bool {
+	service, method, ok := strings.Cut(strings.TrimPrefix(procedure, "/"), "/")
+	if !ok || strings.HasSuffix(service, ".TokenService") {
+		return false
+	}
+	for _, p := range []string{"Get", "List", "Download", "Resolve"} {
+		if strings.HasPrefix(method, p) {
+			return true
+		}
+	}
+	return false
 }
