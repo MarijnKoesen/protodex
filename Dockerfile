@@ -8,10 +8,10 @@ RUN go mod download
 COPY . .
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath \
-      -ldflags "-s -w -X example.com/openbuf/internal/version.Version=${VERSION}" \
-      -o /out/openbuf ./cmd/openbuf
+      -ldflags "-s -w -X github.com/marijnkoesen/protodex/internal/version.Version=${VERSION}" \
+      -o /out/protodex ./cmd/protodex
 
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /out/openbuf /openbuf
+COPY --from=build /out/protodex /protodex
 USER nonroot:nonroot
-ENTRYPOINT ["/openbuf"]
+ENTRYPOINT ["/protodex"]

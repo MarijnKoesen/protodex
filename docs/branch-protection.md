@@ -27,7 +27,7 @@ Notes:
 A repository admin can apply the policy with the GitHub CLI:
 
 ```sh
-gh api -X PUT repos/MarijnKoesen/openbuf/branches/main/protection \
+gh api -X PUT repos/marijnkoesen/protodex/branches/main/protection \
   -H "Accept: application/vnd.github+json" --input - <<'JSON'
 {
   "required_status_checks": {
@@ -53,6 +53,6 @@ gh api -X PUT repos/MarijnKoesen/openbuf/branches/main/protection \
 }
 JSON
 
-gh api -X PATCH repos/MarijnKoesen/openbuf \
+gh api -X PATCH repos/marijnkoesen/protodex \
   -f allow_squash_merge=true -f allow_merge_commit=false -f allow_rebase_merge=false
 ```
