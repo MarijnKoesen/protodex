@@ -181,14 +181,23 @@ async function labelsView(main, [owner, name]) {
 
 async function filesView(main, [owner, name, ref, path]) {
   main.replaceChildren(...moduleHeader(owner, name, '/files'));
-  // Without an explicit ref show the newest commit (the default label may not exist yet).
+  // Without an explicit ref show the module's default label; fall back to the
+  // newest commit when that label does not exist yet.
+  let res;
   if (!ref) {
-    const latest = await commitSvc('ListCommits', { pageSize: 1, resourceRef: nameRef(owner, name), order: 'ORDER_CREATE_TIME_DESC' });
-    ref = latest.commits?.[0]?.id;
-    if (!ref) { main.append(el('p', { class: 'muted' }, 'No commits yet.')); return; }
+    const { modules } = await mod('GetModules', { moduleRefs: [{ name: { owner, module: name } }] });
+    try {
+      ref = modules[0].defaultLabelName;
+      res = await downloadSvc('Download', { values: [{ resourceRef: { name: { owner, module: name, ref } } }] });
+    } catch (err) {
+      if (!(err instanceof ApiError) || err.code !== 'not_found') throw err;
+      const latest = await commitSvc('ListCommits', { pageSize: 1, resourceRef: nameRef(owner, name), order: 'ORDER_CREATE_TIME_DESC' });
+      ref = latest.commits?.[0]?.id;
+      if (!ref) { main.append(el('p', { class: 'muted' }, 'No commits yet.')); return; }
+      res = undefined;
+    }
   }
-  const resourceRef = { name: { owner, module: name, ref } };
-  const res = await downloadSvc('Download', { values: [{ resourceRef }] });
+  res ??= await downloadSvc('Download', { values: [{ resourceRef: { name: { owner, module: name, ref } } }] });
   const content = res.contents[0];
   const files = (content.files || []).slice().sort((a, b) => a.path.localeCompare(b.path));
   const current = files.find((f) => f.path === path) || files.find((f) => f.path.endsWith('.proto')) || files[0];
@@ -269,7 +278,11 @@ async function guard(main, fn, onError) {
 }
 
 async function render() {
-  const main = document.getElementById('main');
+  // Each render gets a fresh <main>; a slow earlier view keeps writing into
+  // its detached element, so it can never overwrite the current page.
+  const old = document.getElementById('main');
+  const main = el('main', { id: 'main', tabindex: '-1' });
+  old.replaceWith(main);
   const path = location.hash.replace(/^#/, '') || '/';
   for (const [re, view] of routes) {
     const m = re.exec(path);
@@ -293,7 +306,7 @@ function renderNav() {
     localStorage.setItem('protodex.theme', root.dataset.theme);
   } }, 'Theme');
   nav.replaceChildren(el('a', { href: '#/' }, 'Modules'), el('a', { href: '#/tokens' }, 'Tokens'),
-    token.get() ? el('button', { type: 'button', onclick: () => { token.clear(); renderNav(); location.hash = '#/login'; } }, 'Sign out')
+    token.get() ? el('button', { type: 'button', onclick: () => { token.clear(); renderNav(); if (location.hash === '#/login') render(); else location.hash = '#/login'; } }, 'Sign out')
       : el('a', { href: '#/login' }, 'Sign in'), theme);
 }
 
@@ -301,6 +314,10 @@ if (typeof document !== 'undefined') {
   const saved = localStorage.getItem('protodex.theme');
   if (saved) document.documentElement.dataset.theme = saved;
   renderNav();
+  document.querySelector('.skip')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById('main').focus();
+  });
   addEventListener('hashchange', render);
   render();
 }

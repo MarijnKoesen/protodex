@@ -54,7 +54,7 @@ test('manage tokens', async ({ page }) => {
 });
 
 test('unauthenticated users are sent to sign in; theme toggles', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/#/tokens');
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
   await page.getByRole('button', { name: 'Toggle light/dark theme' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', /light|dark/);
