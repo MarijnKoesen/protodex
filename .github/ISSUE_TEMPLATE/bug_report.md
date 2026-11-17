@@ -12,6 +12,6 @@ labels: bug
 <!-- Commands, `buf` CLI version, config. Please remove secrets. -->
 
 **Environment**
-- Openbuf version/commit:
+- Wireyard version/commit:
 - `buf` CLI version:
 - OS / deployment:

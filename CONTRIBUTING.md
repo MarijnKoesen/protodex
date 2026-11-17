@@ -1,4 +1,4 @@
-# Contributing to Openbuf
+# Contributing to Wireyard
 
 Thanks for helping! Please read this whole file before opening a PR. The
 clean-room rules are **mandatory**: a PR that breaks them gets rejected no
@@ -6,7 +6,7 @@ matter how good the code is.
 
 ## Clean-room provenance rules
 
-Openbuf re-implements a registry API compatible with the `buf` CLI. To keep
+Wireyard re-implements a registry API compatible with the `buf` CLI. To keep
 the project legally clean, **only these public inputs may be used**:
 
 1. [`bufbuild/registry-proto`](https://github.com/bufbuild/registry-proto):
@@ -70,7 +70,7 @@ CI runs the same Makefile targets you run locally:
 |------------------------|---------------------------------------------------------|
 | `make lint`            | SPDX header check, `go vet`, `golangci-lint`            |
 | `make test`            | `go test -race` with coverage (`coverage.out`)          |
-| `make build`           | `go build ./...` and `bin/openbuf`                      |
+| `make build`           | `go build ./...` and `bin/wireyard`                      |
 | `make generate`        | `go generate` (+ `buf generate` once configured)        |
 | `make check-generated` | fails if `go mod tidy` / `make generate` change files   |
 | `make licenses`        | dependency license check (go-licenses)                  |

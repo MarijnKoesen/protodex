@@ -8,10 +8,10 @@ RUN go mod download
 COPY . .
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath \
-      -ldflags "-s -w -X github.com/marijnkoesen/openbuf/internal/version.Version=${VERSION}" \
-      -o /out/openbuf ./cmd/openbuf
+      -ldflags "-s -w -X github.com/marijnkoesen/wireyard/internal/version.Version=${VERSION}" \
+      -o /out/wireyard ./cmd/wireyard
 
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /out/openbuf /openbuf
+COPY --from=build /out/wireyard /wireyard
 USER nonroot:nonroot
-ENTRYPOINT ["/openbuf"]
+ENTRYPOINT ["/wireyard"]

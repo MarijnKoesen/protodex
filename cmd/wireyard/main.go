@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Command openbuf is the Openbuf server. It is currently a placeholder.
+// Command wireyard is the Wireyard server. It is currently a placeholder.
 package main
 
 import (
 	"fmt"
 	"os"
 
-	"github.com/marijnkoesen/openbuf/internal/version"
+	"github.com/marijnkoesen/wireyard/internal/version"
 )
 
 func main() {

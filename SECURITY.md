@@ -14,5 +14,5 @@ disclosure timeline with you.
 
 ## Supported versions
 
-Openbuf has no releases yet. Until 1.0, only the latest commit on `main`
+Wireyard has no releases yet. Until 1.0, only the latest commit on `main`
 receives security fixes.
