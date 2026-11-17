@@ -77,3 +77,14 @@ func TestMatrix(t *testing.T) {
 		t.Fatalf("unexpected:\n%s", md)
 	}
 }
+
+func TestRedactionEdgeCases(t *testing.T) {
+	b := NewBody([]byte(`{"tokens":["actual-secret"],"n":{"api_key":{"v":"k-secret"}}}`), "application/json", false)
+	if strings.Contains(string(b.JSON), "secret") {
+		t.Fatalf("leak: %s", b.JSON)
+	}
+	bin := NewBody([]byte("\x01rawtoken"), "application/proto", false)
+	if bin.Base64 != "" || bin.SHA256 == "" {
+		t.Fatalf("binary body must not be kept by default: %+v", bin)
+	}
+}

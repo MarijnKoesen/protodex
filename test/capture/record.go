@@ -6,7 +6,9 @@
 package capture
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -18,7 +20,11 @@ import (
 type Body struct {
 	JSON   json.RawMessage `json:"json,omitempty"`
 	Base64 string          `json:"base64,omitempty"`
-	Size   int             `json:"size"`
+	// SHA256 identifies payloads whose content was not kept (binary bodies
+	// are dropped by default because credentials cannot be scrubbed from
+	// them reliably).
+	SHA256 string `json:"sha256,omitempty"`
+	Size   int    `json:"size"`
 }
 
 // Exchange is one request/response pair.
@@ -81,7 +87,8 @@ func SanitizeHeaders(h map[string][]string) map[string][]string {
 }
 
 // NewBody builds a sanitised Body from raw bytes and a content type.
-func NewBody(raw []byte, contentType string) Body {
+// Non-JSON bodies are only kept (base64) when keepBinary is true.
+func NewBody(raw []byte, contentType string, keepBinary bool) Body {
 	b := Body{Size: len(raw)}
 	if len(raw) == 0 {
 		return b
@@ -95,10 +102,12 @@ func NewBody(raw []byte, contentType string) Body {
 			}
 		}
 	}
-	// Binary (or non-JSON) payloads may embed credentials we cannot see
-	// into; scrub bearer-looking text on a best-effort basis.
-	b.Base64 = base64.StdEncoding.EncodeToString(
-		[]byte(tokenText.ReplaceAllString(string(raw), "${1}"+redacted)))
+	sum := sha256.Sum256(raw)
+	b.SHA256 = hex.EncodeToString(sum[:])
+	if keepBinary {
+		b.Base64 = base64.StdEncoding.EncodeToString(
+			[]byte(tokenText.ReplaceAllString(string(raw), "${1}"+redacted)))
+	}
 	return b
 }
 
@@ -106,7 +115,7 @@ func scrub(v any) any {
 	switch t := v.(type) {
 	case map[string]any:
 		for k, val := range t {
-			if _, isStr := val.(string); isStr && sensitiveKey.MatchString(k) {
+			if sensitiveKey.MatchString(k) && val != nil {
 				t[k] = redacted
 				continue
 			}

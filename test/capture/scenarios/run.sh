@@ -14,7 +14,7 @@ UPSTREAM=${UPSTREAM:-https://buf.build}
 OUT_DIR=${OUT_DIR:-/out}
 PUBLIC_MODULE=${PUBLIC_MODULE:-bufbuild/protovalidate}
 HOST=buf.build   # the CLI derives the registry host from the module name
-PORT=8443
+PORT=443   # the CLI dials the registry host on 443
 dir="$OUT_DIR/$BUF_VERSION"
 mkdir -p "$dir"
 
@@ -42,7 +42,12 @@ run() { # run <scenario> <command...>
   echo "== $BUF_VERSION: $name"
   ( cd "$work" && "$@" ) > "$dir/$name.log" 2>&1 || echo "   (exit non-zero; see $dir/$name.log)"
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  if [[ ! -s "$dir/$name.jsonl" ]]; then
+    echo "   ERROR: no traffic captured for $name (proxy not reached?)" >&2
+    failed=1
+  fi
 }
+failed=0
 
 work=$(mktemp -d)
 cat > "$work/buf.yaml" <<YAML
@@ -75,8 +80,9 @@ run registry-module-info  buf registry module info "$HOST/$PUBLIC_MODULE"
 run registry-label-list   buf registry label list "$HOST/$PUBLIC_MODULE"
 
 if [[ -n "${PUSH_MODULE:-}" && -n "${BUF_TOKEN:-}" ]]; then
-  run push         bash -c "sed -i 's#^version: v2#version: v2\nname: $HOST/$PUSH_MODULE#' buf.yaml && buf push --label capture-$BUF_VERSION"
+  run push         bash -c "sed -i 's#- path: proto#- path: proto\n    name: $HOST/$PUSH_MODULE#' buf.yaml && buf push --label capture-$BUF_VERSION"
   run label-list-own buf registry label list "$HOST/$PUSH_MODULE"
 else
   echo "PUSH_MODULE/BUF_TOKEN not set: skipping push scenarios"
 fi
+exit "$failed"

@@ -23,6 +23,8 @@ type Proxy struct {
 	Scenario   string
 	// Transport is used for upstream requests; nil means http.DefaultTransport.
 	Transport http.RoundTripper
+	// KeepBinary stores non-JSON bodies (best-effort scrubbed). Off by default.
+	KeepBinary bool
 
 	mu sync.Mutex
 }
@@ -53,8 +55,8 @@ func (p *Proxy) Handler() http.Handler {
 			Status:     rec.status,
 			ReqHeader:  reqHeader,
 			RespHeader: SanitizeHeaders(rec.Header()),
-			ReqBody:    NewBody(reqBytes, reqCT),
-			RespBody:   NewBody(rec.buf.Bytes(), rec.Header().Get("Content-Type")),
+			ReqBody:    NewBody(reqBytes, reqCT, p.KeepBinary),
+			RespBody:   NewBody(rec.buf.Bytes(), rec.Header().Get("Content-Type"), p.KeepBinary),
 		})
 	})
 }

@@ -47,6 +47,7 @@ func runProxy(args []string) {
 	cert := fs.String("tls-cert", "", "TLS certificate (PEM); empty = plain HTTP")
 	key := fs.String("tls-key", "", "TLS key (PEM)")
 	dial := fs.String("upstream-addr", "", "dial this host:port instead of resolving the upstream name (avoids loops when /etc/hosts points the registry at the proxy)")
+	keep := fs.Bool("keep-binary", false, "also store non-JSON bodies (may contain credentials; review before sharing)")
 	_ = fs.Parse(args)
 
 	u, err := url.Parse(*upstream)
@@ -58,7 +59,7 @@ func runProxy(args []string) {
 		log.Fatal(err)
 	}
 	defer func() { _ = f.Close() }()
-	p := &capture.Proxy{Upstream: u, Out: f, CLIVersion: *ver, Scenario: *scen}
+	p := &capture.Proxy{Upstream: u, Out: f, CLIVersion: *ver, Scenario: *scen, KeepBinary: *keep}
 	if *dial != "" {
 		tr := http.DefaultTransport.(*http.Transport).Clone()
 		tr.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
