@@ -16,6 +16,17 @@ endorsed by Buf Technologies, Inc. See [CONTRIBUTING.md](CONTRIBUTING.md#clean-r
 Early bootstrap. `protodex serve` runs a skeleton server: most MVP RPCs return `unimplemented`; with `-db` set, `TokenService` and bearer-token auth are live (first run: `protodex bootstrap`). Also `/healthz` and `/readyz`. The roadmap and analysis are in
 [`docs/plan.html`](docs/plan.html).
 
+## Quickstart
+
+```sh
+docker compose -f deploy/docker-compose.yaml up -d --build
+curl -fsS http://localhost:8080/healthz
+```
+
+Runs protodex with SeaweedFS and a SQLite volume. See
+[`deploy/README.md`](deploy/README.md) for settings, which parts are not
+functional yet, the container image and the signed release artifacts.
+
 ## Non-goals
 
 - Copying, decompiling or deriving from any non-public Buf server code,
