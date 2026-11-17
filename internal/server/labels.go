@@ -151,6 +151,9 @@ func resourceLabels(ctx context.Context, q store.Querier, ref *modulev1.Resource
 		switch _, merr := q.GetModuleByID(ctx, id); {
 		case merr == nil:
 			o, m, err = getModuleByID(ctx, q, id)
+			if connect.CodeOf(err) == connect.CodeNotFound {
+				return o, m, nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("resource with id %s not found", id))
+			}
 		case !errors.Is(merr, store.ErrNotFound):
 			return o, m, nil, internalErr(merr)
 		default:
@@ -339,10 +342,11 @@ func (s *labelService) CreateOrUpdateLabels(ctx context.Context, req *connect.Re
 // setArchived archives or unarchives the referenced labels atomically. The
 // module's default label cannot be archived.
 func (s *labelService) setArchived(ctx context.Context, refs []*modulev1.LabelRef, archived bool) error {
-	if _, err := caller(ctx); err != nil {
+	me, err := caller(ctx)
+	if err != nil {
 		return err
 	}
-	err := s.st.WithTx(ctx, func(q store.Querier) error {
+	err = s.st.WithTx(ctx, func(q store.Querier) error {
 		for _, ref := range refs {
 			l, err := resolveLabel(ctx, q, ref)
 			if err != nil {
@@ -357,7 +361,7 @@ func (s *labelService) setArchived(ctx context.Context, refs []*modulev1.LabelRe
 			if l.label.Archived == archived {
 				continue
 			}
-			if err := q.ArchiveLabel(ctx, l.mod.ID, l.label.Name, archived); err != nil {
+			if err := q.ArchiveLabel(ctx, l.mod.ID, l.label.Name, archived, me.Owner.ID); err != nil {
 				return internalErr(err)
 			}
 		}

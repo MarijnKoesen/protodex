@@ -18,4 +18,4 @@ SELECT * FROM labels WHERE id = ?;
 SELECT * FROM labels WHERE module_id = ? ORDER BY name;
 
 -- name: ArchiveLabel :execrows
-UPDATE labels SET archived = ?, archived_at = ?, updated_at = ? WHERE module_id = ? AND name = ?;
+UPDATE labels SET archived = ?, archived_at = ?, updated_at = ?, updated_by = ? WHERE module_id = ? AND name = ?;

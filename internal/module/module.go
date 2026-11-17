@@ -41,11 +41,11 @@ func ValidateName(name string) error {
 	return nil
 }
 
-// ValidateLabelName checks a label name: 1 to 250 bytes of UTF-8 without
+// ValidateLabelName checks a label name: 1 to 250 characters of UTF-8 without
 // whitespace or control characters. Labels commonly mirror VCS branch and
 // tag names, so dots, slashes and similar punctuation are allowed.
 func ValidateLabelName(name string) error {
-	if name == "" || len(name) > MaxLabelNameLen {
+	if name == "" || utf8.RuneCountInString(name) > MaxLabelNameLen {
 		return fmt.Errorf("%w: label name %q must be 1 to %d characters", ErrInvalidName, name, MaxLabelNameLen)
 	}
 	if !utf8.ValidString(name) {

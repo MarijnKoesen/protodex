@@ -235,13 +235,13 @@ func testCommitsLabelsDeps(t *testing.T, s store.Store) {
 	}
 	_, err = s.SetLabel(ctx, store.Label{ModuleID: m.ID, Name: "bad", CommitID: "missing"})
 	is(t, err, store.ErrConflict)
-	if err := s.ArchiveLabel(ctx, m.ID, "main", true); err != nil {
+	if err := s.ArchiveLabel(ctx, m.ID, "main", true, ""); err != nil {
 		t.Fatal(err)
 	}
 	if !must(s.GetLabel(ctx, m.ID, "main")).Archived {
 		t.Fatal("label not archived")
 	}
-	is(t, s.ArchiveLabel(ctx, m.ID, "nope", true), store.ErrNotFound)
+	is(t, s.ArchiveLabel(ctx, m.ID, "nope", true, ""), store.ErrNotFound)
 	_, err = s.GetLabel(ctx, m.ID, "nope")
 	is(t, err, store.ErrNotFound)
 	if ls := must(s.ListLabels(ctx, m.ID)); len(ls) != 1 {
@@ -522,20 +522,20 @@ func testLabelIdentity(t *testing.T, s store.Store) {
 	_, err = s.GetLabelByID(ctx, "missing")
 	is(t, err, store.ErrNotFound)
 
-	if err := s.ArchiveLabel(ctx, m.ID, "main", true); err != nil {
+	if err := s.ArchiveLabel(ctx, m.ID, "main", true, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := must(s.GetLabel(ctx, m.ID, "main")); !got.Archived || got.ArchivedAt == nil {
 		t.Fatalf("archived label = %+v", got)
 	}
-	if err := s.ArchiveLabel(ctx, m.ID, "main", false); err != nil {
+	if err := s.ArchiveLabel(ctx, m.ID, "main", false, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := must(s.GetLabel(ctx, m.ID, "main")); got.Archived || got.ArchivedAt != nil {
 		t.Fatalf("unarchived label = %+v", got)
 	}
 	// Setting an archived label to unarchived through SetLabel also clears it.
-	if err := s.ArchiveLabel(ctx, m.ID, "main", true); err != nil {
+	if err := s.ArchiveLabel(ctx, m.ID, "main", true, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := must(s.SetLabel(ctx, store.Label{ModuleID: m.ID, Name: "main", CommitID: c2.ID})); got.Archived || got.ArchivedAt != nil {

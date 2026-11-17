@@ -11,13 +11,14 @@ import (
 )
 
 const archiveLabel = `-- name: ArchiveLabel :execrows
-UPDATE labels SET archived = ?, archived_at = ?, updated_at = ? WHERE module_id = ? AND name = ?
+UPDATE labels SET archived = ?, archived_at = ?, updated_at = ?, updated_by = ? WHERE module_id = ? AND name = ?
 `
 
 type ArchiveLabelParams struct {
 	Archived   int64
 	ArchivedAt sql.NullInt64
 	UpdatedAt  int64
+	UpdatedBy  string
 	ModuleID   string
 	Name       string
 }
@@ -27,6 +28,7 @@ func (q *Queries) ArchiveLabel(ctx context.Context, arg ArchiveLabelParams) (int
 		arg.Archived,
 		arg.ArchivedAt,
 		arg.UpdatedAt,
+		arg.UpdatedBy,
 		arg.ModuleID,
 		arg.Name,
 	)

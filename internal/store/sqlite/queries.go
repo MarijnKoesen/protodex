@@ -294,14 +294,14 @@ func (q *queries) ListLabels(ctx context.Context, moduleID string) ([]store.Labe
 	return mapAll(rows, err, labelFrom)
 }
 
-func (q *queries) ArchiveLabel(ctx context.Context, moduleID, name string, archived bool) error {
+func (q *queries) ArchiveLabel(ctx context.Context, moduleID, name string, archived bool, updatedBy string) error {
 	now := ts(time.Time{})
 	var archivedAt sql.NullInt64
 	if archived {
 		archivedAt = nullTS(&now)
 	}
 	return existing(q.w.ArchiveLabel(ctx, db.ArchiveLabelParams{Archived: b2i(archived), ArchivedAt: archivedAt,
-		UpdatedAt: now.UnixMicro(), ModuleID: moduleID, Name: name}))
+		UpdatedAt: now.UnixMicro(), UpdatedBy: updatedBy, ModuleID: moduleID, Name: name}))
 }
 
 // --- commit deps ---

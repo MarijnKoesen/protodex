@@ -168,7 +168,7 @@ type Querier interface {
 	GetLabelByID(ctx context.Context, id string) (Label, error)
 	ListLabels(ctx context.Context, moduleID string) ([]Label, error) // sorted by name
 	// ArchiveLabel archives or unarchives a label (ErrNotFound if missing).
-	ArchiveLabel(ctx context.Context, moduleID, name string, archived bool) error
+	ArchiveLabel(ctx context.Context, moduleID, name string, archived bool, updatedBy string) error
 
 	AddCommitDeps(ctx context.Context, deps []CommitDep) error
 	ListCommitDeps(ctx context.Context, commitID string) ([]CommitDep, error)
