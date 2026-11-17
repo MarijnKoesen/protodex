@@ -77,6 +77,22 @@ func (q *Queries) GetCommit(ctx context.Context, arg GetCommitParams) (Commit, e
 	return i, err
 }
 
+const getCommitByID = `-- name: GetCommitByID :one
+SELECT id, module_id, digest, created_at FROM commits WHERE id = ?
+`
+
+func (q *Queries) GetCommitByID(ctx context.Context, id string) (Commit, error) {
+	row := q.db.QueryRowContext(ctx, getCommitByID, id)
+	var i Commit
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.Digest,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listCommitDeps = `-- name: ListCommitDeps :many
 SELECT commit_id, dep_registry, dep_owner, dep_module, dep_commit_id, dep_digest FROM commit_deps WHERE commit_id = ?
 ORDER BY dep_registry, dep_owner, dep_module

@@ -13,7 +13,7 @@ endorsed by Buf Technologies, Inc. See [CONTRIBUTING.md](CONTRIBUTING.md#clean-r
 
 ## Status
 
-Early bootstrap. `protodex serve` runs a skeleton server: most MVP RPCs return `unimplemented`; with `-db` set, `TokenService`, the owner services (`OwnerService`, `UserService`, `OrganizationService` reads) and bearer-token auth are live (first run: `protodex bootstrap`; owners: [docs/owners.md](docs/owners.md)). Also `/healthz` and `/readyz`. The roadmap and analysis are in
+Early bootstrap. `protodex serve` runs a skeleton server: most MVP RPCs return `unimplemented`; with `-db` set, `TokenService`, the owner services (`OwnerService`, `UserService`, `OrganizationService` reads), `ModuleService`, `LabelService` and bearer-token auth are live (first run: `protodex bootstrap`; owners: [docs/owners.md](docs/owners.md); modules and labels: [docs/modules.md](docs/modules.md)). Also `/healthz` and `/readyz`. The roadmap and analysis are in
 [`docs/plan.html`](docs/plan.html).
 
 ## Quickstart

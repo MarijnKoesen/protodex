@@ -31,6 +31,8 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 		"LabelCrossModule":      testLabelCrossModule,
 		"TxPanicReleasesWriter": testTxPanic,
 		"SetManifestAtomic":     testManifestAtomic,
+		"ModuleUpdate":          testModuleUpdate,
+		"LabelIdentity":         testLabelIdentity,
 	}
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -460,5 +462,83 @@ func testManifestAtomic(t *testing.T, s store.Store) {
 	is(t, s.SetManifest(ctx, c.ID, bad), store.ErrConflict)
 	if got := must(s.GetManifest(ctx, c.ID)); len(got) != 1 || got[0].Path != "a.proto" {
 		t.Fatalf("manifest not preserved after failed replace: %+v", got)
+	}
+}
+
+func testModuleUpdate(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	o, m := seed(t, s)
+	if !m.UpdatedAt.Equal(m.CreatedAt) || m.Deprecated || m.Description != "" {
+		t.Fatalf("CreateModule = %+v", m)
+	}
+	other := must(s.CreateOwner(ctx, store.Owner{Name: "zeta", Type: store.OwnerUser}))
+	must(s.CreateModule(ctx, store.Module{OwnerID: other.ID, Name: "b", Visibility: store.VisibilityPrivate, DefaultLabel: "main"}))
+	if all := must(s.ListAllModules(ctx)); len(all) != 2 {
+		t.Fatalf("ListAllModules = %+v", all)
+	}
+
+	m.Visibility, m.DefaultLabel, m.Description, m.URL, m.Deprecated = store.VisibilityPrivate, "dev", "d", "https://x.test", true
+	m.UpdatedAt = m.CreatedAt.Add(time.Hour)
+	got := must(s.UpdateModule(ctx, m))
+	if got.Visibility != store.VisibilityPrivate || got.DefaultLabel != "dev" || got.Description != "d" ||
+		got.URL != "https://x.test" || !got.Deprecated || !got.UpdatedAt.Equal(m.UpdatedAt) ||
+		!got.CreatedAt.Equal(m.CreatedAt) || got.Name != "api" || got.OwnerID != o.ID {
+		t.Fatalf("UpdateModule = %+v", got)
+	}
+	if byID := must(s.GetModuleByID(ctx, m.ID)); byID != got {
+		t.Fatalf("GetModuleByID = %+v, want %+v", byID, got)
+	}
+	_, err := s.UpdateModule(ctx, store.Module{ID: "missing", Visibility: store.VisibilityPublic})
+	is(t, err, store.ErrNotFound)
+	_, err = s.GetModuleByID(ctx, "missing")
+	is(t, err, store.ErrNotFound)
+}
+
+func testLabelIdentity(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	_, m := seed(t, s)
+	base := time.Now().Add(-time.Hour).Truncate(time.Second)
+	c1 := must(s.CreateCommit(ctx, store.Commit{ModuleID: m.ID, Digest: "b5:aa", CreatedAt: base}))
+	c2 := must(s.CreateCommit(ctx, store.Commit{ModuleID: m.ID, Digest: "b5:bb", CreatedAt: base.Add(time.Minute)}))
+	if got := must(s.GetCommitByID(ctx, c2.ID)); got.ModuleID != m.ID {
+		t.Fatalf("GetCommitByID = %+v", got)
+	}
+	_, err := s.GetCommitByID(ctx, "missing")
+	is(t, err, store.ErrNotFound)
+
+	l1 := must(s.SetLabel(ctx, store.Label{ModuleID: m.ID, Name: "main", CommitID: c1.ID, UpdatedBy: "u1", UpdatedAt: base}))
+	if l1.ID == "" || !l1.CreatedAt.Equal(base) || l1.UpdatedBy != "u1" || l1.ArchivedAt != nil {
+		t.Fatalf("SetLabel (create) = %+v", l1)
+	}
+	// Moving keeps id and creation time.
+	l2 := must(s.SetLabel(ctx, store.Label{ModuleID: m.ID, Name: "main", CommitID: c2.ID, UpdatedBy: "u2", UpdatedAt: base.Add(time.Minute)}))
+	if l2.ID != l1.ID || !l2.CreatedAt.Equal(base) || l2.CommitID != c2.ID || l2.UpdatedBy != "u2" ||
+		!l2.UpdatedAt.Equal(base.Add(time.Minute)) {
+		t.Fatalf("SetLabel (move) = %+v, first %+v", l2, l1)
+	}
+	if got := must(s.GetLabelByID(ctx, l1.ID)); got.Name != "main" || got.CommitID != c2.ID {
+		t.Fatalf("GetLabelByID = %+v", got)
+	}
+	_, err = s.GetLabelByID(ctx, "missing")
+	is(t, err, store.ErrNotFound)
+
+	if err := s.ArchiveLabel(ctx, m.ID, "main", true); err != nil {
+		t.Fatal(err)
+	}
+	if got := must(s.GetLabel(ctx, m.ID, "main")); !got.Archived || got.ArchivedAt == nil {
+		t.Fatalf("archived label = %+v", got)
+	}
+	if err := s.ArchiveLabel(ctx, m.ID, "main", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := must(s.GetLabel(ctx, m.ID, "main")); got.Archived || got.ArchivedAt != nil {
+		t.Fatalf("unarchived label = %+v", got)
+	}
+	// Setting an archived label to unarchived through SetLabel also clears it.
+	if err := s.ArchiveLabel(ctx, m.ID, "main", true); err != nil {
+		t.Fatal(err)
+	}
+	if got := must(s.SetLabel(ctx, store.Label{ModuleID: m.ID, Name: "main", CommitID: c2.ID})); got.Archived || got.ArchivedAt != nil {
+		t.Fatalf("SetLabel after archive = %+v", got)
 	}
 }

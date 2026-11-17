@@ -157,7 +157,8 @@ func (q *queries) RenameOwner(ctx context.Context, id, newName string) (store.Ow
 
 func moduleFrom(m db.Module) store.Module {
 	return store.Module{ID: m.ID, OwnerID: m.OwnerID, Name: m.Name, Visibility: m.Visibility,
-		DefaultLabel: m.DefaultLabel, CreatedAt: fromTS(m.CreatedAt)}
+		DefaultLabel: m.DefaultLabel, Description: m.Description, URL: m.Url, Deprecated: m.Deprecated != 0,
+		CreatedAt: fromTS(m.CreatedAt), UpdatedAt: fromTS(m.UpdatedAt)}
 }
 
 func (q *queries) CreateModule(ctx context.Context, m store.Module) (store.Module, error) {
@@ -165,14 +166,41 @@ func (q *queries) CreateModule(ctx context.Context, m store.Module) (store.Modul
 		m.ID = newID()
 	}
 	m.CreatedAt = ts(m.CreatedAt)
+	if m.UpdatedAt.IsZero() {
+		m.UpdatedAt = m.CreatedAt
+	}
+	m.UpdatedAt = ts(m.UpdatedAt)
 	err := q.w.CreateModule(ctx, db.CreateModuleParams{ID: m.ID, OwnerID: m.OwnerID, Name: m.Name,
-		Visibility: m.Visibility, DefaultLabel: m.DefaultLabel, CreatedAt: m.CreatedAt.UnixMicro()})
+		Visibility: m.Visibility, DefaultLabel: m.DefaultLabel, Description: m.Description, Url: m.URL,
+		Deprecated: b2i(m.Deprecated), CreatedAt: m.CreatedAt.UnixMicro(), UpdatedAt: m.UpdatedAt.UnixMicro()})
 	return m, mapErr(err)
 }
 
 func (q *queries) GetModule(ctx context.Context, ownerID, name string) (store.Module, error) {
 	m, err := q.r.GetModule(ctx, db.GetModuleParams{OwnerID: ownerID, Name: name})
 	return moduleFrom(m), mapErr(err)
+}
+
+func (q *queries) GetModuleByID(ctx context.Context, id string) (store.Module, error) {
+	m, err := q.r.GetModuleByID(ctx, id)
+	return moduleFrom(m), mapErr(err)
+}
+
+func (q *queries) ListAllModules(ctx context.Context) ([]store.Module, error) {
+	rows, err := q.r.ListAllModules(ctx)
+	return mapAll(rows, err, moduleFrom)
+}
+
+func (q *queries) UpdateModule(ctx context.Context, m store.Module) (store.Module, error) {
+	err := existing(q.w.UpdateModule(ctx, db.UpdateModuleParams{Visibility: m.Visibility,
+		DefaultLabel: m.DefaultLabel, Description: m.Description, Url: m.URL, Deprecated: b2i(m.Deprecated),
+		UpdatedAt: ts(m.UpdatedAt).UnixMicro(), ID: m.ID}))
+	if err != nil {
+		return store.Module{}, err
+	}
+	// Read back through the writer so a transaction sees its own update.
+	row, err := q.w.GetModuleByID(ctx, m.ID)
+	return moduleFrom(row), mapErr(err)
 }
 
 func (q *queries) ListModules(ctx context.Context, ownerID string) ([]store.Module, error) {
@@ -210,6 +238,11 @@ func (q *queries) GetCommit(ctx context.Context, moduleID, id string) (store.Com
 	return commitFrom(c), mapErr(err)
 }
 
+func (q *queries) GetCommitByID(ctx context.Context, id string) (store.Commit, error) {
+	c, err := q.r.GetCommitByID(ctx, id)
+	return commitFrom(c), mapErr(err)
+}
+
 func (q *queries) ListCommits(ctx context.Context, moduleID string) ([]store.Commit, error) {
 	rows, err := q.r.ListCommits(ctx, moduleID)
 	return mapAll(rows, err, commitFrom)
@@ -218,19 +251,41 @@ func (q *queries) ListCommits(ctx context.Context, moduleID string) ([]store.Com
 // --- labels ---
 
 func labelFrom(l db.Label) store.Label {
-	return store.Label{ModuleID: l.ModuleID, Name: l.Name, CommitID: l.CommitID,
-		Archived: l.Archived != 0, UpdatedAt: fromTS(l.UpdatedAt)}
+	return store.Label{ID: l.ID, ModuleID: l.ModuleID, Name: l.Name, CommitID: l.CommitID,
+		Archived: l.Archived != 0, ArchivedAt: ptrTS(l.ArchivedAt), UpdatedBy: l.UpdatedBy,
+		CreatedAt: fromTS(l.CreatedAt), UpdatedAt: fromTS(l.UpdatedAt)}
 }
 
 func (q *queries) SetLabel(ctx context.Context, l store.Label) (store.Label, error) {
+	if l.ID == "" {
+		l.ID = newID()
+	}
 	l.UpdatedAt = ts(l.UpdatedAt)
-	err := q.w.SetLabel(ctx, db.SetLabelParams{ModuleID: l.ModuleID, Name: l.Name, CommitID: l.CommitID,
-		Archived: b2i(l.Archived), UpdatedAt: l.UpdatedAt.UnixMicro()})
-	return l, mapErr(err)
+	if l.CreatedAt.IsZero() {
+		l.CreatedAt = l.UpdatedAt
+	}
+	var archivedAt sql.NullInt64
+	if l.Archived {
+		archivedAt = nullTS(&l.UpdatedAt)
+	}
+	err := q.w.SetLabel(ctx, db.SetLabelParams{ID: l.ID, ModuleID: l.ModuleID, Name: l.Name, CommitID: l.CommitID,
+		Archived: b2i(l.Archived), ArchivedAt: archivedAt, UpdatedBy: l.UpdatedBy,
+		CreatedAt: ts(l.CreatedAt).UnixMicro(), UpdatedAt: l.UpdatedAt.UnixMicro()})
+	if err != nil {
+		return store.Label{}, mapErr(err)
+	}
+	// An existing label keeps its id and creation time: read them back.
+	row, err := q.w.GetLabel(ctx, db.GetLabelParams{ModuleID: l.ModuleID, Name: l.Name})
+	return labelFrom(row), mapErr(err)
 }
 
 func (q *queries) GetLabel(ctx context.Context, moduleID, name string) (store.Label, error) {
 	l, err := q.r.GetLabel(ctx, db.GetLabelParams{ModuleID: moduleID, Name: name})
+	return labelFrom(l), mapErr(err)
+}
+
+func (q *queries) GetLabelByID(ctx context.Context, id string) (store.Label, error) {
+	l, err := q.r.GetLabelByID(ctx, id)
 	return labelFrom(l), mapErr(err)
 }
 
@@ -240,8 +295,13 @@ func (q *queries) ListLabels(ctx context.Context, moduleID string) ([]store.Labe
 }
 
 func (q *queries) ArchiveLabel(ctx context.Context, moduleID, name string, archived bool) error {
-	return existing(q.w.ArchiveLabel(ctx, db.ArchiveLabelParams{Archived: b2i(archived),
-		UpdatedAt: ts(time.Time{}).UnixMicro(), ModuleID: moduleID, Name: name}))
+	now := ts(time.Time{})
+	var archivedAt sql.NullInt64
+	if archived {
+		archivedAt = nullTS(&now)
+	}
+	return existing(q.w.ArchiveLabel(ctx, db.ArchiveLabelParams{Archived: b2i(archived), ArchivedAt: archivedAt,
+		UpdatedAt: now.UnixMicro(), ModuleID: moduleID, Name: name}))
 }
 
 // --- commit deps ---

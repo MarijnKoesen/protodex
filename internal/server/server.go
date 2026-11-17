@@ -29,8 +29,8 @@ import (
 // Handler builds the HTTP handler: all MVP services (currently Unimplemented),
 // plus /healthz, /readyz and /metrics. Request bodies are capped at maxRequestBytes.
 //
-// Without WithStore no authentication is performed and the TokenService and
-// owner services stay unimplemented.
+// Without WithStore no authentication is performed and the TokenService,
+// owner, module and label services stay unimplemented.
 func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observability, options ...Option) http.Handler {
 	var o serverOptions
 	for _, f := range options {
@@ -67,10 +67,16 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 			return modulev1connect.NewGraphServiceHandler(modulev1connect.UnimplementedGraphServiceHandler{}, opts...)
 		},
 		func() (string, http.Handler) {
-			return modulev1connect.NewLabelServiceHandler(modulev1connect.UnimplementedLabelServiceHandler{}, opts...)
+			if o.store == nil {
+				return modulev1connect.NewLabelServiceHandler(modulev1connect.UnimplementedLabelServiceHandler{}, opts...)
+			}
+			return modulev1connect.NewLabelServiceHandler(&labelService{st: o.store}, opts...)
 		},
 		func() (string, http.Handler) {
-			return modulev1connect.NewModuleServiceHandler(modulev1connect.UnimplementedModuleServiceHandler{}, opts...)
+			if o.store == nil {
+				return modulev1connect.NewModuleServiceHandler(modulev1connect.UnimplementedModuleServiceHandler{}, opts...)
+			}
+			return modulev1connect.NewModuleServiceHandler(&moduleService{st: o.store}, opts...)
 		},
 		func() (string, http.Handler) {
 			return modulev1connect.NewResourceServiceHandler(modulev1connect.UnimplementedResourceServiceHandler{}, opts...)
@@ -138,8 +144,8 @@ type serverOptions struct {
 // Option configures Handler and Serve.
 type Option func(*serverOptions)
 
-// WithStore enables token authentication, TokenService and the owner
-// services backed by st.
+// WithStore enables token authentication, TokenService and the owner,
+// module and label services backed by st.
 func WithStore(st store.Store) Option { return func(o *serverOptions) { o.store = st } }
 
 // WithLimiter sets the authentication rate-limit hook.

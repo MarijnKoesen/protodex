@@ -41,11 +41,15 @@ type Identity struct {
 }
 
 type Label struct {
-	ModuleID  string
-	Name      string
-	CommitID  string
-	Archived  int64
-	UpdatedAt int64
+	ModuleID   string
+	Name       string
+	CommitID   string
+	Archived   int64
+	UpdatedAt  int64
+	ID         string
+	CreatedAt  int64
+	ArchivedAt sql.NullInt64
+	UpdatedBy  string
 }
 
 type ManifestEntry struct {
@@ -61,6 +65,10 @@ type Module struct {
 	Visibility   string
 	DefaultLabel string
 	CreatedAt    int64
+	Description  string
+	Url          string
+	Deprecated   int64
+	UpdatedAt    int64
 }
 
 type Owner struct {

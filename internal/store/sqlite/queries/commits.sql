@@ -14,3 +14,6 @@ VALUES (?, ?, ?, ?, ?, ?);
 -- name: ListCommitDeps :many
 SELECT * FROM commit_deps WHERE commit_id = ?
 ORDER BY dep_registry, dep_owner, dep_module;
+
+-- name: GetCommitByID :one
+SELECT * FROM commits WHERE id = ?;
