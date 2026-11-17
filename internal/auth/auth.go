@@ -145,28 +145,41 @@ func Bootstrap(ctx context.Context, st store.Store, username, secret string) (ou
 	} else if !ValidSecretFormat(secret) {
 		return "", false, fmt.Errorf("auth: bootstrap: token must start with %q followed by at least %d bytes of base64url", Prefix, secretBytes)
 	}
-	err = st.WithTx(ctx, func(q store.Querier) error {
-		owners, err := q.ListOwners(ctx)
-		if err != nil {
-			return err
-		}
-		for _, o := range owners {
-			if o.Type == store.OwnerUser {
-				return nil // already bootstrapped
-			}
-		}
-		u, err := q.CreateOwner(ctx, store.Owner{Name: username, Type: store.OwnerUser})
-		if err != nil {
-			return err
-		}
-		if _, err := q.CreateToken(ctx, store.Token{OwnerID: u.ID, Name: "bootstrap", Hash: HashSecret(secret)}); err != nil {
-			return err
-		}
-		created = true
-		return nil
+	err = st.WithTx(ctx, func(q store.Querier) (err error) {
+		created, err = BootstrapIn(ctx, q, username, secret)
+		return err
 	})
 	if err != nil || !created {
 		return "", false, err
 	}
 	return secret, true, nil
+}
+
+// BootstrapIn is the transactional core of Bootstrap: within q it creates
+// username with a token for secret (which must be valid) unless a user
+// already exists. It lets callers bootstrap atomically with other writes.
+func BootstrapIn(ctx context.Context, q store.Querier, username, secret string) (created bool, err error) {
+	if username == "" {
+		return false, errors.New("auth: bootstrap: user name is required")
+	}
+	if !ValidSecretFormat(secret) {
+		return false, errors.New("auth: bootstrap: invalid token")
+	}
+	owners, err := q.ListOwners(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, o := range owners {
+		if o.Type == store.OwnerUser {
+			return false, nil // already bootstrapped
+		}
+	}
+	u, err := q.CreateOwner(ctx, store.Owner{Name: username, Type: store.OwnerUser})
+	if err != nil {
+		return false, err
+	}
+	if _, err := q.CreateToken(ctx, store.Token{OwnerID: u.ID, Name: "bootstrap", Hash: HashSecret(secret)}); err != nil {
+		return false, err
+	}
+	return true, nil
 }

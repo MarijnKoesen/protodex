@@ -155,14 +155,16 @@ func page(os []store.Owner, size uint32, token string) ([]store.Owner, string, e
 	return os[off:end], next, nil
 }
 
-// listOwners returns the owners of type typ whose name contains query.
+// listOwners returns the owners of type typ whose name contains query,
+// ignoring case.
 func listOwners(ctx context.Context, q store.Querier, typ, query string) ([]store.Owner, error) {
+	query = strings.ToLower(query)
 	all, err := q.ListOwners(ctx)
 	if err != nil {
 		return nil, internalErr(err)
 	}
 	return slices.DeleteFunc(all, func(o store.Owner) bool {
-		return o.Type != typ || !strings.Contains(o.Name, query)
+		return o.Type != typ || !strings.Contains(strings.ToLower(o.Name), query)
 	}), nil
 }
 

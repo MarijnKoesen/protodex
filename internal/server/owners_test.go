@@ -149,6 +149,9 @@ func TestUserService(t *testing.T) {
 	if names, _ := list(&ownerv1.ListUsersRequest{NameQuery: "ob"}); len(names) != 1 || names[0] != "bob" {
 		t.Fatalf("name query = %v", names)
 	}
+	if names, _ := list(&ownerv1.ListUsersRequest{NameQuery: "oB"}); len(names) != 1 || names[0] != "bob" {
+		t.Fatalf("mixed-case query: %v", names)
+	}
 	if names, _ := list(&ownerv1.ListUsersRequest{HasTypes: []ownerv1.UserType{ownerv1.UserType_USER_TYPE_BOT}}); len(names) != 0 {
 		t.Fatalf("bot filter = %v", names)
 	}
@@ -197,6 +200,10 @@ func TestOrganizationService(t *testing.T) {
 	list, err := c.ListOrganizations(ctx, connect.NewRequest(&ownerv1.ListOrganizationsRequest{Order: ownerv1.ListOrganizationsRequest_ORDER_NAME_DESC}))
 	if err != nil || len(list.Msg.GetOrganizations()) != 2 || list.Msg.GetOrganizations()[0].GetName() != "googleapis" {
 		t.Fatalf("ListOrganizations = %v, %v", list, err)
+	}
+	list, err = c.ListOrganizations(ctx, connect.NewRequest(&ownerv1.ListOrganizationsRequest{NameQuery: "ACME"}))
+	if err != nil || len(list.Msg.GetOrganizations()) != 1 || list.Msg.GetOrganizations()[0].GetName() != "acme" {
+		t.Fatalf("ListOrganizations(ACME) = %v, %v", list, err)
 	}
 	_, err = c.ListOrganizations(ctx, connect.NewRequest(&ownerv1.ListOrganizationsRequest{UserRefs: []*ownerv1.UserRef{
 		{Value: &ownerv1.UserRef_Name{Name: "admin"}},

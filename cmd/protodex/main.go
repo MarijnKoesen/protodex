@@ -168,10 +168,27 @@ func bootstrap(ctx context.Context, args []string, getenv func(string) string, s
 			ensure = append(ensure, ownerSpec{owner.Mirror, m})
 		}
 	}
+	// Reject one name requested for two different owners before touching
+	// the database.
+	seen := map[string]owner.Kind{*user: owner.User}
 	for _, e := range ensure {
 		if err := owner.ValidateName(e.kind, e.name); err != nil {
 			return fmt.Errorf("bootstrap: %w", err)
 		}
+		if k, ok := seen[e.name]; ok && k != e.kind {
+			return fmt.Errorf("bootstrap: name %q requested as both %s and %s", e.name, kindLabel(k), kindLabel(e.kind))
+		}
+		seen[e.name] = e.kind
+	}
+	supplied := getenv("PROTODEX_BOOTSTRAP_TOKEN")
+	secret := supplied
+	if secret == "" {
+		var err error
+		if secret, err = auth.GenerateSecret(); err != nil {
+			return fmt.Errorf("bootstrap: %w", err)
+		}
+	} else if !auth.ValidSecretFormat(secret) {
+		return errors.New("bootstrap: PROTODEX_BOOTSTRAP_TOKEN has an invalid format")
 	}
 
 	s, err := sqlite.Open(*dbPath)
@@ -183,8 +200,9 @@ func bootstrap(ctx context.Context, args []string, getenv func(string) string, s
 		return fmt.Errorf("bootstrap: %w", err)
 	}
 
-	// Owners first: if one conflicts, no token has been issued yet.
+	// Owners, user and token are created in one transaction: all or nothing.
 	var created []string
+	var userCreated bool
 	err = s.WithTx(ctx, func(q store.Querier) error {
 		created = nil
 		for _, e := range ensure {
@@ -196,7 +214,8 @@ func bootstrap(ctx context.Context, args []string, getenv func(string) string, s
 				created = append(created, fmt.Sprintf("%s %q", kindLabel(e.kind), e.name))
 			}
 		}
-		return nil
+		userCreated, err = auth.BootstrapIn(ctx, q, *user, secret)
+		return err
 	})
 	if err != nil {
 		return fmt.Errorf("bootstrap: %w", err)
@@ -207,11 +226,6 @@ func bootstrap(ctx context.Context, args []string, getenv func(string) string, s
 		}
 	}
 
-	supplied := getenv("PROTODEX_BOOTSTRAP_TOKEN")
-	secret, userCreated, err := auth.Bootstrap(ctx, s, *user, supplied)
-	if err != nil {
-		return fmt.Errorf("bootstrap: %w", err)
-	}
 	switch {
 	case !userCreated:
 		_, err = fmt.Fprintln(stdout, "bootstrap: a user already exists; no user created")

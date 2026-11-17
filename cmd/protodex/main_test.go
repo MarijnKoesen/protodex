@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/marijnkoesen/protodex/internal/owner"
 	"github.com/marijnkoesen/protodex/internal/store/sqlite"
 )
 
@@ -112,6 +113,42 @@ func TestBootstrapOrgAndMirrors(t *testing.T) {
 	}
 	if want := "acme:organization:false admin:user:false bufbuild:organization:true googleapis:organization:true"; strings.Join(got, " ") != want {
 		t.Fatalf("owners = %v, want %s", got, want)
+	}
+}
+
+func TestBootstrapFailureCreatesNothing(t *testing.T) {
+	ctx := context.Background()
+	db := filepath.Join(t.TempDir(), "b.db")
+	noenv := func(string) string { return "" }
+	var out, errb bytes.Buffer
+	// Conflicting names in the request are rejected up front.
+	if err := bootstrap(ctx, []string{"-db", db, "-user", "admin", "-mirror-owners", "admin"}, noenv, &out, &errb); err == nil {
+		t.Fatal("user and mirror with the same name accepted")
+	}
+	// A conflict only detectable in the database rolls everything back.
+	s, err := sqlite.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Create(ctx, s, owner.Organization, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := bootstrap(ctx, []string{"-db", db, "-user", "admin", "-org", "acme", "-mirror-owners", "googleapis"}, noenv, &out, &errb); err == nil {
+		t.Fatal("user over existing org accepted")
+	}
+	if strings.Contains(out.String(), "created") || strings.Contains(out.String(), "pdx_") {
+		t.Fatalf("failed bootstrap reported success: %q", out.String())
+	}
+	owners, err := s.ListOwners(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(owners) != 1 || owners[0].Name != "admin" {
+		t.Fatalf("owners after failed bootstrap = %v", owners)
 	}
 }
 
