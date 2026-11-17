@@ -239,6 +239,7 @@ func TestGitFetcher(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	write(".gitattributes", "*.proto text eol=crlf\n")
 	write("LICENSE", "Apache")
 	write("google/api/annotations.proto", "syntax = \"proto3\";\n")
 	git("add", ".")
@@ -274,6 +275,12 @@ func TestGitFetcher(t *testing.T) {
 	_ = b.Close()
 	if string(got) != "syntax = \"proto3\";\n" { // the pinned tag, not the later commit
 		t.Fatalf("content = %q", got)
+	}
+
+	// A branch is not a tag pin, even though a ref of that name exists.
+	branch := git("rev-parse", "--abbrev-ref", "HEAD")
+	if _, err := (GitFetcher{AllowFile: true}).Fetch(context.Background(), "file://"+repo, branch); err == nil {
+		t.Fatal("branch name accepted as a tag pin")
 	}
 
 	// file:// is refused unless explicitly allowed.

@@ -40,12 +40,13 @@ upstreams:
 
 - **Pins only.** `ref` is a tag or a full commit hash, never a branch. A commit
   pin is verified against the commit git resolved.
+- **Tags are tags.** A non-hash `ref` is fetched as `refs/tags/<ref>`, so a branch name can never be used as a pin.
 - **Exact content.** `.proto` files (and the upstream `LICENSE`) are stored
-  byte for byte at their path relative to the root, so `go_package` and every
+  byte for byte (`.gitattributes` eol/filter settings are ignored) at their path relative to the root, so `go_package` and every
   other option are unchanged. Other files are not part of a module.
 - **Labels.** The imported commit gets `main` (the default label, so an
   unpinned dependency resolves), the tag for a tag pin, and any `labels`.
-  Bumping the pin creates a new commit and moves these labels.
+  Bumping the pin creates a new commit and moves these labels. If the new pin changes only files that are not mirrored, the content is identical: the existing commit is reused (labels move to it) and its provenance keeps naming the first upstream revision that produced this content.
 - **Dependencies.** `deps` are imported first; the dependency commit is
   recorded as an edge of the new commit and folded into its digest. The
   upstreams above have no inter-dependencies (protovalidate only imports

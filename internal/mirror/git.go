@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -56,12 +57,27 @@ func (g GitFetcher) Fetch(ctx context.Context, url, ref string) (Snapshot, error
 		}
 		return strings.TrimSpace(out.String()), nil
 	}
+	// A tag is fetched as refs/tags/<ref> so a branch of the same name (or
+	// main/HEAD) can never satisfy the pin; commit hashes are fetched as is.
+	fetchRef := ref
+	if !commitRE.MatchString(ref) {
+		fetchRef = "refs/tags/" + ref
+	}
 	steps := [][]string{
 		{"init", "-q"},
-		{"fetch", "-q", "--depth", "1", "--no-tags", "--", url, ref},
-		{"checkout", "-q", "--detach", "FETCH_HEAD"},
+		{"fetch", "-q", "--depth", "1", "--no-tags", "--", url, fetchRef},
 	}
-	for _, s := range steps {
+	// Check out the committed bytes: .gitattributes (eol, filter, ident) must
+	// not transform what is mirrored; info/attributes overrides the tree's.
+	const attrs = "* -text -eol -filter -ident -export-subst\n"
+	steps = append(steps, []string{"-c", "core.autocrlf=false", "checkout", "-q", "--detach", "FETCH_HEAD"})
+	for i, s := range steps {
+		if i == 2 { // after init and fetch: write attributes before checkout
+			if err := os.WriteFile(filepath.Join(dir, ".git", "info", "attributes"), []byte(attrs), 0o600); err != nil {
+				cleanup()
+				return Snapshot{}, err
+			}
+		}
 		if _, err := run(s...); err != nil {
 			cleanup()
 			return Snapshot{}, err
