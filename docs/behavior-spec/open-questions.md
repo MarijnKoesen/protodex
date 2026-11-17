@@ -88,7 +88,10 @@ version: v2
 deps:
   - name: buf.build/bufbuild/protovalidate
     commit: 511051f7f4374c3ca873b53ae68a9288
-    digest: b5:a4a2d4d8...e3c8   # b5: + 128 hex chars (SHA-512)
+    digest: b5:a4a2d4d808a25984cced60769c822c5d496ef0b740f56ac0c9e6b97aaa25b86a9332a00ffd74e0cd202be29e91bd3edfb0bf2ba4dacfe48ff2d8217f9986e3c8
+    # b5: + 128 hex chars = 64-byte digest. The hash function is not
+    # established by observation here (an external review reports SHAKE256,
+    # not SHA-512; unconfirmed, clean-room rules forbid reading CLI source).
 ```
 
 - Commit ID: 32 lowercase hex chars (dashless UUID).
@@ -97,9 +100,10 @@ deps:
 - Whether the CLI *validates* the digest on `dep update`/`build`, and what it
   checks on `push`, was not tested (needs a push or a tampered mirror).
 **Scope decision:** mirrors must preserve upstream commit IDs and `b5`
-digests (as in ADR 0001). Generating a b5 digest ourselves for locally
-pushed modules requires a clean-room implementation checked against the
-values above.
+digests (as in ADR 0001). Computing b5 digests ourselves for locally
+pushed modules is deferred: the digest above has no reproducible inputs
+(the module's file set is not recorded), so it is not yet a usable test
+vector. Mirrors simply pass digests through unchanged.
 
 ## 6. Non-`buf.registry.*` endpoints - VERIFIED for observed commands
 
