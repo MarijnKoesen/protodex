@@ -14,5 +14,5 @@ disclosure timeline with you.
 
 ## Supported versions
 
-Wireyard has no releases yet. Until 1.0, only the latest commit on `main`
+Protodex has no releases yet. Until 1.0, only the latest commit on `main`
 receives security fixes.

@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Command wireyard is the Wireyard server. It is currently a placeholder.
+// Command protodex is the Protodex server. It is currently a placeholder.
 package main
 
 import (
 	"fmt"
 	"os"
 
-	"github.com/marijnkoesen/wireyard/internal/version"
+	"github.com/marijnkoesen/protodex/internal/version"
 )
 
 func main() {

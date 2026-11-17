@@ -1,9 +1,9 @@
-# Wireyard
+# Protodex
 
 > Name, module path and addressing are recorded in
 > [ADR 0001](docs/adr/0001-naming-and-addressing.md).
 
-Wireyard is an open-source (Apache-2.0), self-hostable Protobuf schema
+Protodex is an open-source (Apache-2.0), self-hostable Protobuf schema
 registry that aims to be wire-compatible with the public
 [`bufbuild/registry-proto`](https://github.com/bufbuild/registry-proto) API,
 so the standard `buf` CLI can push to and pull from it.
@@ -39,7 +39,7 @@ make help              # list targets
 
 | Path        | Contents                                       |
 |-------------|------------------------------------------------|
-| `cmd/`      | Binaries (`cmd/wireyard`)                        |
+| `cmd/`      | Binaries (`cmd/protodex`)                        |
 | `internal/` | Private Go packages                             |
 | `proto/`    | Protobuf definitions owned by this project      |
 | `deploy/`   | Helm chart and deployment manifests             |

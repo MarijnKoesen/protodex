@@ -12,6 +12,6 @@ labels: bug
 <!-- Commands, `buf` CLI version, config. Please remove secrets. -->
 
 **Environment**
-- Wireyard version/commit:
+- Protodex version/commit:
 - `buf` CLI version:
 - OS / deployment:

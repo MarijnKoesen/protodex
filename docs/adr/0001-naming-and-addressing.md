@@ -15,17 +15,17 @@ trademark problems, so we renamed before code accumulated.
 
 | Item | Value |
 |------|-------|
-| Project / binary name | `wireyard` |
-| Go module path | `github.com/marijnkoesen/wireyard` |
-| Container image | `ghcr.io/marijnkoesen/wireyard` |
-| Helm chart | OCI: `oci://ghcr.io/marijnkoesen/charts/wireyard` (chart name `wireyard`) |
+| Project / binary name | `protodex` |
+| Go module path | `github.com/marijnkoesen/protodex` |
+| Container image | `ghcr.io/marijnkoesen/protodex` |
+| Helm chart | OCI: `oci://ghcr.io/marijnkoesen/charts/protodex` (chart name `protodex`) |
 | Domain | None yet. The server host is always configuration, never hard-coded. |
 
 The module path, image and chart live under the GitHub owner so they need no
 domain purchase. They are chosen publication locations; nothing is published
 there yet. If the project moves to an organisation or a custom domain, the
 module path changes in a single mechanical PR. The GitHub repository itself
-must be renamed from `openbuf` to `wireyard` (GitHub redirects the old name).
+must be renamed from `openbuf` to `protodex` (GitHub redirects the old name).
 
 ### Mirror addressing
 

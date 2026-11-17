@@ -8,10 +8,10 @@ RUN go mod download
 COPY . .
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath \
-      -ldflags "-s -w -X github.com/marijnkoesen/wireyard/internal/version.Version=${VERSION}" \
-      -o /out/wireyard ./cmd/wireyard
+      -ldflags "-s -w -X github.com/marijnkoesen/protodex/internal/version.Version=${VERSION}" \
+      -o /out/protodex ./cmd/protodex
 
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /out/wireyard /wireyard
+COPY --from=build /out/protodex /protodex
 USER nonroot:nonroot
-ENTRYPOINT ["/wireyard"]
+ENTRYPOINT ["/protodex"]
