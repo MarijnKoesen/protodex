@@ -323,7 +323,15 @@ func (q *queries) ListCommitDeps(ctx context.Context, commitID string) ([]store.
 // --- blobs and manifests ---
 
 func (q *queries) PutBlob(ctx context.Context, b store.Blob) error {
-	return mapErr(q.w.PutBlob(ctx, db.PutBlobParams{Digest: b.Digest, Size: int64(len(b.Data)), Data: b.Data}))
+	size := b.Size
+	if size == 0 {
+		size = int64(len(b.Data))
+	}
+	data := b.Data
+	if data == nil {
+		data = []byte{} // the column is NOT NULL; contents may live in the blob store
+	}
+	return mapErr(q.w.PutBlob(ctx, db.PutBlobParams{Digest: b.Digest, Size: size, Data: data}))
 }
 
 func (q *queries) GetBlob(ctx context.Context, digest string) (store.Blob, error) {

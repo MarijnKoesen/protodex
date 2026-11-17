@@ -22,6 +22,8 @@ import (
 	"github.com/marijnkoesen/protodex/gen/buf/registry/module/v1/modulev1connect"
 	ownerv1 "github.com/marijnkoesen/protodex/gen/buf/registry/owner/v1"
 	"github.com/marijnkoesen/protodex/internal/auth"
+	"github.com/marijnkoesen/protodex/internal/blob"
+	"github.com/marijnkoesen/protodex/internal/blob/fsblob"
 	"github.com/marijnkoesen/protodex/internal/observability"
 	"github.com/marijnkoesen/protodex/internal/server"
 	"github.com/marijnkoesen/protodex/internal/store"
@@ -32,6 +34,7 @@ type authEnv struct {
 	url    string
 	st     store.Store
 	secret string
+	blobs  blob.Store
 }
 
 func newAuthEnv(t *testing.T) authEnv {
@@ -49,9 +52,14 @@ func newAuthEnv(t *testing.T) authEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := httptest.NewServer(server.Handler(slog.New(slog.DiscardHandler), 1<<20, observability.New(), server.WithStore(st)))
+	blobs, err := fsblob.New(filepath.Join(t.TempDir(), "blobs"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(server.Handler(slog.New(slog.DiscardHandler), 1<<20, observability.New(),
+		server.WithStore(st), server.WithBlobs(blobs), server.WithUploadLimits(server.UploadLimits{MaxFiles: 5, MaxFileBytes: 1 << 10})))
 	t.Cleanup(ts.Close)
-	return authEnv{url: ts.URL, st: st, secret: secret}
+	return authEnv{url: ts.URL, st: st, secret: secret, blobs: blobs}
 }
 
 func (e authEnv) client(bearer string) iamv1connect.TokenServiceClient {

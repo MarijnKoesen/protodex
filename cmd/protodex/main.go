@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/marijnkoesen/protodex/internal/auth"
+	"github.com/marijnkoesen/protodex/internal/blob/fsblob"
 	"github.com/marijnkoesen/protodex/internal/config"
 	"github.com/marijnkoesen/protodex/internal/oidcauth"
 	"github.com/marijnkoesen/protodex/internal/owner"
@@ -71,6 +72,16 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			}
 			defer func() { _ = st.Close() }()
 			opts = append(opts, server.WithStore(st))
+			blobDir := cfg.BlobDir
+			if blobDir == "" {
+				blobDir = cfg.DBPath + ".blobs"
+			}
+			blobs, err := fsblob.New(blobDir, 0)
+			if err != nil {
+				return fmt.Errorf("open blob store: %w", err)
+			}
+			opts = append(opts, server.WithBlobs(blobs),
+				server.WithUploadLimits(server.UploadLimits{MaxFiles: cfg.MaxPushFiles, MaxFileBytes: cfg.MaxPushFileBytes}))
 			if cfg.OIDC.Enabled() {
 				opts = append(opts, server.WithOIDC(oidcauth.New(cfg.OIDC, st, cfg.Logger(stderr))))
 			}

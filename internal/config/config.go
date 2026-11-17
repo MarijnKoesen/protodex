@@ -32,6 +32,13 @@ type Config struct {
 	// DBPath is the SQLite database file. When set, serve opens it (taking
 	// the exclusive process lock) and refuses to start if it is in use.
 	DBPath string `json:"db_path"`
+	// BlobDir is the directory file contents are stored in (content-addressed).
+	// Default: the database path plus ".blobs". Only used with db_path.
+	BlobDir string `json:"blob_dir"`
+	// MaxPushFiles and MaxPushFileBytes bound one pushed module; zero selects
+	// the defaults (5000 files, 10 MiB per file).
+	MaxPushFiles     int   `json:"max_push_files"`
+	MaxPushFileBytes int64 `json:"max_push_file_bytes"`
 	// ShutdownTimeout bounds graceful shutdown.
 	ShutdownTimeout Duration `json:"shutdown_timeout"`
 	// TracingEnabled turns on OpenTelemetry tracing with an OTLP/HTTP exporter.
@@ -254,6 +261,9 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	if v := getenv("PROTODEX_DB_PATH"); v != "" {
 		cfg.DBPath = v
 	}
+	if v := getenv("PROTODEX_BLOB_DIR"); v != "" {
+		cfg.BlobDir = v
+	}
 	if v := getenv("PROTODEX_SHUTDOWN_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
@@ -297,6 +307,9 @@ func (c Config) Validate() error {
 	}
 	if c.MaxRequestBytes <= 0 {
 		errs = append(errs, errors.New("max_request_bytes must be positive"))
+	}
+	if c.MaxPushFiles < 0 || c.MaxPushFileBytes < 0 {
+		errs = append(errs, errors.New("max_push_files and max_push_file_bytes must not be negative"))
 	}
 	if c.ShutdownTimeout <= 0 {
 		errs = append(errs, errors.New("shutdown_timeout must be positive"))
