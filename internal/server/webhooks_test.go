@@ -80,6 +80,26 @@ func TestWebhooksAndAuditLog(t *testing.T) {
 	secret = created.Msg.GetSecret()
 	id := created.Msg.GetWebhook().GetId()
 
+	// Management events go to subscribers: they must not carry the URL's path or query.
+	secretURL, err := hooks.CreateWebhook(ctx, connect.NewRequest(&webhookv1.CreateWebhookRequest{
+		Url: rcv.URL + "/hook/s3cr3t?token=s3cr3t", EventTypes: []string{"protodex.webhook.*"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := webhook.New(e.st, webhook.Options{}).RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	_ = secretURL
+	evs, _ := events.ListEvents(ctx, connect.NewRequest(&auditv1.ListEventsRequest{}))
+	for _, ev := range evs.Msg.GetEvents() {
+		if strings.Contains(ev.GetDataJson(), "s3cr3t") {
+			t.Fatalf("event leaks webhook URL: %s", ev.GetDataJson())
+		}
+	}
+	if _, err := hooks.DeleteWebhook(ctx, connect.NewRequest(&webhookv1.DeleteWebhookRequest{Id: secretURL.Msg.GetWebhook().GetId()})); err != nil {
+		t.Fatal(err)
+	}
+
 	// Changes made over the API are audited and queued.
 	mods := modulev1connect.NewModuleServiceClient(http.DefaultClient, e.url, bearer(e.secret))
 	createModule(t, mods, &modulev1.CreateModulesRequest_Value{OwnerRef: ownerName("admin"), Name: "weather"})
@@ -103,7 +123,7 @@ func TestWebhooksAndAuditLog(t *testing.T) {
 			t.Fatalf("actor = %q", ev.GetActorName())
 		}
 	}
-	want := []string{"protodex.webhook.created", "protodex.module.created", "protodex.token.created"}
+	want := []string{"protodex.webhook.created", "protodex.webhook.created", "protodex.webhook.deleted", "protodex.module.created", "protodex.token.created"}
 	if strings.Join(types, ",") != strings.Join(want, ",") {
 		t.Fatalf("event types = %v, want %v", types, want)
 	}

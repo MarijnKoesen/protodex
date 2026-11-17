@@ -28,6 +28,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/marijnkoesen/protodex/internal/store"
@@ -226,6 +227,12 @@ func (w *Worker) send(ctx context.Context, hook store.Webhook, ev store.AuditEve
 	req.Header.Set("X-Protodex-Delivery", d.ID)
 	resp, err := w.opts.Client.Do(req)
 	if err != nil {
+		// *url.Error embeds the request URL, which may carry credentials in
+		// its path or query: keep only the underlying cause.
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
 		return 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()

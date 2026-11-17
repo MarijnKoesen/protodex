@@ -3,10 +3,13 @@
 package webhook_test
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -118,14 +121,21 @@ func TestUnreachableReceiverIsRetried(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	url := srv.URL
 	srv.Close() // nothing listens any more
+	url += "/hook/s3cr3t-path?token=s3cr3t-query"
+	var logs bytes.Buffer
 	h, _ := st.CreateWebhook(ctx, store.Webhook{URL: url, Secret: "s", Active: true})
 	_, _ = audit.Record(ctx, st, audit.Event{Type: audit.LabelUpdated})
-	if _, err := webhook.New(st, webhook.Options{}).RunOnce(ctx); err != nil {
+	log := slog.New(slog.NewTextHandler(&logs, nil))
+	if _, err := webhook.New(st, webhook.Options{Logger: log}).RunOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
 	ds, _ := st.ListDeliveries(ctx, h.ID, "", 10)
 	if ds[0].Status != store.DeliveryPending || ds[0].LastStatus != 0 || ds[0].LastError == "" {
 		t.Fatalf("delivery = %+v", ds[0])
+	}
+	// URLs may carry credentials: neither the stored error nor logs may show them.
+	if strings.Contains(ds[0].LastError, "s3cr3t") || strings.Contains(logs.String(), "s3cr3t") || logs.Len() == 0 {
+		t.Fatalf("URL leaked (error %q, logs %q)", ds[0].LastError, logs.String())
 	}
 }
 

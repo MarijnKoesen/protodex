@@ -41,6 +41,16 @@ func webhookProto(w store.Webhook) *webhookv1.Webhook {
 		Active: w.Active, CreateTime: timestamppb.New(w.CreatedAt), UpdateTime: timestamppb.New(w.UpdatedAt)}
 }
 
+// originOf returns scheme://host of raw. URLs may carry credentials in their
+// path or query, so audit events (sent to every subscriber) only get the origin.
+func originOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
 // validateWebhookURL accepts absolute http(s) URLs without credentials.
 func validateWebhookURL(raw string) error {
 	u, err := url.Parse(raw)
@@ -103,7 +113,7 @@ func (s *webhookService) CreateWebhook(ctx context.Context, req *connect.Request
 			return err
 		}
 		_, err = audit.Record(ctx, q, audit.Event{Type: audit.WebhookCreated, Subject: w.ID,
-			Data: map[string]any{"url": w.URL, "event_types": w.EventTypes}})
+			Data: map[string]any{"origin": originOf(w.URL), "event_types": w.EventTypes}})
 		return err
 	})
 	if err != nil {
@@ -156,7 +166,7 @@ func (s *webhookService) UpdateWebhook(ctx context.Context, req *connect.Request
 			return err
 		}
 		_, err = audit.Record(ctx, q, audit.Event{Type: audit.WebhookUpdated, Subject: out.ID,
-			Data: map[string]any{"url": out.URL, "event_types": out.EventTypes, "active": out.Active}})
+			Data: map[string]any{"origin": originOf(out.URL), "event_types": out.EventTypes, "active": out.Active}})
 		return err
 	})
 	if err != nil {
