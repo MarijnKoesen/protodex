@@ -4,7 +4,7 @@ Deployment assets for Protodex:
 
 | Path                    | What                                              |
 |-------------------------|---------------------------------------------------|
-| `docker-compose.yaml`   | Local quickstart: protodex + MinIO + SQLite volume |
+| `docker-compose.yaml`   | Local quickstart: protodex + SeaweedFS + SQLite volume |
 | `.env.example`          | Documented settings / dev defaults for the quickstart |
 | `charts/<name>/`        | Helm chart (not yet; CI runs `helm lint` + `kubeconform` once a `Chart.yaml` exists) |
 
@@ -27,9 +27,10 @@ The stack:
   root filesystem, all capabilities dropped, `no-new-privileges`, uid 65532.
   The only writable paths are the `protodex-data` named volume at
   `/var/lib/protodex` (for the SQLite database) and a `/tmp` tmpfs.
-- **minio** (S3 API on the compose network only; console on
-  `127.0.0.1:9001`, log in with `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`).
-- **bucket-init**: one-shot `mc` job that creates the private `protodex`
+- **seaweedfs** (single-process SeaweedFS with its S3 gateway on port 8333,
+  compose network only). The admin identity comes from `S3_ACCESS_KEY` /
+  `S3_SECRET_KEY`; data lives in the `seaweedfs-data` volume.
+- **bucket-init**: one-shot job (`weed shell`) that creates the `protodex`
   bucket; protodex starts after it succeeds.
 
 Tear down with `docker compose -f deploy/docker-compose.yaml down`
@@ -45,8 +46,8 @@ of it is functional on `main` right now:
 | `PROTODEX_ADDR`, `PROTODEX_LOG_LEVEL`, `PROTODEX_LOG_FORMAT` (also `PROTODEX_MAX_REQUEST_BYTES`, `PROTODEX_SHUTDOWN_TIMEOUT`, `PROTODEX_CONFIG`) | **Functional** (`internal/config`) |
 | `/healthz`, `/readyz` | **Functional** |
 | Registry RPCs (`buf push` / `buf dep update` / `buf registry login`) | Not yet: every RPC returns `unimplemented` |
-| `PROTODEX_DB_PATH` (SQLite on the `protodex-data` volume) | **Ignored** until the SQLite store lands ([#7](https://github.com/MarijnKoesen/protodex/issues/7)) |
-| `PROTODEX_BLOB_BACKEND`, `PROTODEX_S3_*` (MinIO) | **Ignored** until the blob store lands ([#8](https://github.com/MarijnKoesen/protodex/issues/8)) |
+| `PROTODEX_DB_PATH` (SQLite on the `protodex-data` volume) | **Functional**: `serve` opens the database and holds its lock (#7) |
+| `PROTODEX_BLOB_BACKEND`, `PROTODEX_S3_*` (SeaweedFS) | **Ignored** until the blob store lands ([#8](https://github.com/MarijnKoesen/protodex/issues/8)) |
 | `PROTODEX_BOOTSTRAP_ADMIN_TOKEN` | **Ignored** until token auth lands |
 
 The forward-looking variable names are provisional; the implementing issues
@@ -64,12 +65,11 @@ local use only. Generate a real one with `openssl rand -hex 32` and put it in
 buf registry login localhost:8080 --token-stdin <<<"$PROTODEX_BOOTSTRAP_ADMIN_TOKEN"
 ```
 
-### MinIO images
+### SeaweedFS image
 
-MinIO stopped publishing new community container images in late 2025. The
-compose file pins the last community releases from `quay.io/minio/*`; override
-them with `MINIO_IMAGE` / `MC_IMAGE` (e.g. a mirror, or any S3-compatible
-server that also works with `mc`).
+The compose file uses `chrislusf/seaweedfs:latest` (the same image CI runs the
+S3 contract tests against). Pin a release tag for reproducible deployments by
+setting `SEAWEEDFS_IMAGE` in `deploy/.env`.
 
 ## Container image
 

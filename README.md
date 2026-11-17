@@ -23,7 +23,7 @@ docker compose -f deploy/docker-compose.yaml up -d --build
 curl -fsS http://localhost:8080/healthz
 ```
 
-Runs protodex with MinIO and a SQLite volume. See
+Runs protodex with SeaweedFS and a SQLite volume. See
 [`deploy/README.md`](deploy/README.md) for settings, which parts are not
 functional yet, the container image and the signed release artifacts.
 
