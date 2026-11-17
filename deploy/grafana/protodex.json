@@ -1,0 +1,28 @@
+{
+  "title": "Protodex",
+  "uid": "protodex",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {"from": "now-1h", "to": "now"},
+  "templating": {"list": [{"name": "DS_PROMETHEUS", "type": "datasource", "query": "prometheus", "label": "Prometheus"}]},
+  "panels": [
+    {"id": 1, "type": "timeseries", "title": "RPC rate by procedure", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+     "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+     "targets": [{"expr": "sum by (procedure) (rate(protodex_rpc_requests_total[5m]))", "legendFormat": "{{procedure}}"}]},
+    {"id": 2, "type": "timeseries", "title": "RPC errors by code", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+     "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+     "targets": [{"expr": "sum by (code) (rate(protodex_rpc_requests_total{code!=\"ok\"}[5m]))", "legendFormat": "{{code}}"}]},
+    {"id": 3, "type": "timeseries", "title": "RPC latency p95", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+     "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+     "targets": [{"expr": "histogram_quantile(0.95, sum by (le, procedure) (rate(protodex_rpc_duration_seconds_bucket[5m])))", "legendFormat": "{{procedure}}"}]},
+    {"id": 4, "type": "timeseries", "title": "Upload bytes/s", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+     "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+     "targets": [{"expr": "rate(protodex_upload_bytes_total[5m])"}]},
+    {"id": 5, "type": "timeseries", "title": "Store latency p95", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+     "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+     "targets": [{"expr": "histogram_quantile(0.95, sum by (le, operation) (rate(protodex_store_operation_duration_seconds_bucket[5m])))", "legendFormat": "{{operation}}"}]},
+    {"id": 6, "type": "timeseries", "title": "Blob latency p95", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+     "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+     "targets": [{"expr": "histogram_quantile(0.95, sum by (le, operation) (rate(protodex_blob_operation_duration_seconds_bucket[5m])))", "legendFormat": "{{operation}}"}]}
+  ]
+}

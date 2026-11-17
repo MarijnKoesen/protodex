@@ -19,18 +19,20 @@ import (
 	"github.com/marijnkoesen/protodex/gen/buf/registry/module/v1/modulev1connect"
 	"github.com/marijnkoesen/protodex/gen/buf/registry/owner/v1/ownerv1connect"
 	"github.com/marijnkoesen/protodex/internal/config"
+	"github.com/marijnkoesen/protodex/internal/observability"
+	"github.com/marijnkoesen/protodex/internal/version"
 )
 
 // Handler builds the HTTP handler: all MVP services (currently Unimplemented),
-// plus /healthz and /readyz. Request bodies are capped at maxRequestBytes.
-func Handler(log *slog.Logger, maxRequestBytes int64) http.Handler {
+// plus /healthz, /readyz and /metrics. Request bodies are capped at maxRequestBytes.
+func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observability) http.Handler {
 	opts := []connect.HandlerOption{
 		connect.WithReadMaxBytes(int(min(maxRequestBytes, int64(^uint(0)>>1)))),
 		// Panics in handlers or interceptors become Connect internal errors.
 		recoveryOption(log),
-		// Outermost first: log, authenticate, then validate the request message.
+		// Outermost first: observe, authenticate, then validate the request message.
 		connect.WithInterceptors(
-			loggingInterceptor(log),
+			observeInterceptor(obs),
 			authInterceptor(),
 			validate.NewInterceptor(),
 		),
@@ -87,7 +89,9 @@ func Handler(log *slog.Logger, maxRequestBytes int64) http.Handler {
 	// No dependencies yet; readiness will gain a database check later.
 	mux.HandleFunc("GET /readyz", ok)
 
-	return http.MaxBytesHandler(mux, maxRequestBytes)
+	mux.Handle("GET /metrics", obs.Metrics.Handler())
+
+	return accessLog(log, obs, http.MaxBytesHandler(mux, maxRequestBytes))
 }
 
 // NewHTTPServer returns an http.Server serving h over HTTP/1.1 and cleartext
@@ -109,7 +113,23 @@ func NewHTTPServer(cfg config.Config, h http.Handler) *http.Server {
 // Serve serves on ln until ctx is cancelled, then shuts down gracefully
 // within cfg.ShutdownTimeout.
 func Serve(ctx context.Context, cfg config.Config, log *slog.Logger, ln net.Listener) error {
-	srv := NewHTTPServer(cfg, Handler(log, cfg.MaxRequestBytes))
+	shutdownTracing, err := observability.SetupTracing(ctx, observability.TracingConfig{
+		Enabled:        cfg.TracingEnabled,
+		Endpoint:       cfg.OTLPEndpoint,
+		ServiceVersion: version.String(),
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		tctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracing(tctx); err != nil {
+			log.Warn("tracing shutdown", "error", err)
+		}
+	}()
+
+	srv := NewHTTPServer(cfg, Handler(log, cfg.MaxRequestBytes, observability.New()))
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()

@@ -55,3 +55,18 @@ func TestInvalid(t *testing.T) {
 		t.Error("expected missing file error")
 	}
 }
+
+func TestTracingConfig(t *testing.T) {
+	cfg, err := Load(nil, env(nil), io.Discard)
+	if err != nil || cfg.TracingEnabled {
+		t.Fatalf("tracing must default off: %+v %v", cfg, err)
+	}
+	cfg, err = Load([]string{"-otlp-endpoint", "http://c:4318"},
+		env(map[string]string{"PROTODEX_TRACING_ENABLED": "true"}), io.Discard)
+	if err != nil || !cfg.TracingEnabled || cfg.OTLPEndpoint != "http://c:4318" {
+		t.Fatalf("got %+v %v", cfg, err)
+	}
+	if _, err := Load(nil, env(map[string]string{"PROTODEX_TRACING_ENABLED": "x"}), io.Discard); err == nil {
+		t.Error("expected parse error")
+	}
+}
