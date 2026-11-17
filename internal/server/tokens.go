@@ -101,10 +101,17 @@ func (s *tokenService) findToken(ctx context.Context, me auth.Identity, ref *iam
 		if err := s.resolveUser(me, v.Name.GetUserRef()); err != nil {
 			return store.Token{}, err
 		}
+		var match []store.Token
 		for _, t := range toks {
 			if t.Name == v.Name.GetName() {
-				return t, nil
+				match = append(match, t)
 			}
+		}
+		if len(match) > 1 {
+			return store.Token{}, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("token name %q is ambiguous; use the token id", v.Name.GetName()))
+		}
+		if len(match) == 1 {
+			return match[0], nil
 		}
 	default:
 		return store.Token{}, connect.NewError(connect.CodeInvalidArgument, errors.New("token ref is empty"))
@@ -157,9 +164,7 @@ func (s *tokenService) ListTokens(ctx context.Context, req *connect.Request[iamv
 			return expired
 		}
 	})
-	if req.Msg.GetOrder() != iamv1.ListTokensRequest_ORDER_CREATE_TIME_ASC {
-		slices.Reverse(toks) // newest first by default
-	}
+	sortTokens(toks, req.Msg.GetOrder())
 	resp := &iamv1.ListTokensResponse{}
 	for _, t := range toks {
 		resp.Tokens = append(resp.Tokens, tokenProto(t, me.Owner.ID))
@@ -193,20 +198,8 @@ func (s *tokenService) CreateTokens(ctx context.Context, req *connect.Request[ia
 
 	resp := &iamv1.CreateTokensResponse{}
 	err = s.st.WithTx(ctx, func(q store.Querier) error {
-		existing, err := q.ListTokens(ctx, me.Owner.ID)
-		if err != nil {
-			return err
-		}
-		names := map[string]bool{}
-		for _, t := range existing {
-			names[t.Name] = true
-		}
 		resp.Values = nil
 		for _, v := range req.Msg.GetValues() {
-			if names[v.GetName()] {
-				return connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("token %q already exists", v.GetName()))
-			}
-			names[v.GetName()] = true
 			secret, err := auth.GenerateSecret()
 			if err != nil {
 				return err
@@ -244,10 +237,50 @@ func (s *tokenService) DeleteTokens(ctx context.Context, req *connect.Request[ia
 		}
 		ids = append(ids, t.ID)
 	}
-	for _, id := range ids {
-		if err := s.st.DeleteToken(ctx, id); err != nil && !errors.Is(err, store.ErrNotFound) {
-			return nil, internalErr(err)
+	// All-or-nothing: a failure must not leave a partial revocation behind.
+	err = s.st.WithTx(ctx, func(q store.Querier) error {
+		for _, id := range ids {
+			if err := q.DeleteToken(ctx, id); err != nil && !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, internalErr(err)
 	}
 	return connect.NewResponse(&iamv1.DeleteTokensResponse{}), nil
+}
+
+// sortTokens orders toks per the request; unset times sort as the zero time
+// and ties fall back to newest-created first.
+func sortTokens(toks []store.Token, order iamv1.ListTokensRequest_Order) {
+	at := func(p *time.Time) time.Time {
+		if p == nil {
+			return time.Time{}
+		}
+		return *p
+	}
+	key := func(t store.Token) time.Time {
+		switch order {
+		case iamv1.ListTokensRequest_ORDER_EXPIRE_TIME_DESC, iamv1.ListTokensRequest_ORDER_EXPIRE_TIME_ASC:
+			return at(t.ExpiresAt)
+		case iamv1.ListTokensRequest_ORDER_LAST_USED_TIME_DESC, iamv1.ListTokensRequest_ORDER_LAST_USED_TIME_ASC:
+			return at(t.LastUsedAt)
+		}
+		return t.CreatedAt
+	}
+	asc := order == iamv1.ListTokensRequest_ORDER_CREATE_TIME_ASC ||
+		order == iamv1.ListTokensRequest_ORDER_EXPIRE_TIME_ASC ||
+		order == iamv1.ListTokensRequest_ORDER_LAST_USED_TIME_ASC
+	slices.SortStableFunc(toks, func(a, b store.Token) int {
+		c := key(a).Compare(key(b))
+		if !asc {
+			c = -c
+		}
+		if c == 0 {
+			c = b.CreatedAt.Compare(a.CreatedAt) // ties: newest first
+		}
+		return c
+	})
 }

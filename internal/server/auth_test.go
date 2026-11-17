@@ -132,7 +132,12 @@ func TestLoginFlowAndTokenLifecycle(t *testing.T) {
 	}
 
 	_, err = c.CreateTokens(ctx, connect.NewRequest(&iamv1.CreateTokensRequest{Values: []*iamv1.CreateTokensRequest_Value{{Name: "ci-token"}}}))
-	wantCode(t, err, connect.CodeAlreadyExists)
+	if err != nil {
+		t.Fatalf("duplicate names are allowed: %v", err)
+	}
+	_, err = c.GetTokens(ctx, connect.NewRequest(&iamv1.GetTokensRequest{TokenRefs: []*iamv1.TokenRef{
+		{Value: &iamv1.TokenRef_Name_{Name: &iamv1.TokenRef_Name{Name: "ci-token", UserRef: &ownerv1.UserRef{Value: &ownerv1.UserRef_Name{Name: "admin"}}}}}}}))
+	wantCode(t, err, connect.CodeInvalidArgument)
 	_, err = c.CreateTokens(ctx, connect.NewRequest(&iamv1.CreateTokensRequest{Values: []*iamv1.CreateTokensRequest_Value{
 		{Name: "old-token", ExpireTime: timestamppb.New(time.Now().Add(-time.Hour))}}}))
 	wantCode(t, err, connect.CodeInvalidArgument)
