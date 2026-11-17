@@ -21,6 +21,7 @@ import (
 	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/blob/fsblob"
 	"github.com/marijnkoesen/protodex/internal/config"
+	"github.com/marijnkoesen/protodex/internal/mirror"
 	"github.com/marijnkoesen/protodex/internal/module"
 	"github.com/marijnkoesen/protodex/internal/oidcauth"
 	"github.com/marijnkoesen/protodex/internal/owner"
@@ -39,6 +40,8 @@ commands:
   owner      create, list or rename users, organizations and mirror owners;
              set user roles (viewer, member, admin)
   contributor  grant, revoke or list per-module contributor roles
+  mirror     import upstream modules (googleapis, ...) per mirror.yaml, or
+             show their provenance
   migrate    apply (or "down": roll back one) database migrations
   version    print the version
 `
@@ -103,6 +106,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return bootstrap(ctx, args[1:], os.Getenv, stdout, stderr)
 	case "migrate":
 		return migrate(ctx, args[1:], os.Getenv, stdout, stderr)
+	case "mirror":
+		return mirrorCmd(ctx, args[1:], os.Getenv, stdout, stderr)
 	case "owner":
 		return ownerCmd(ctx, args[1:], os.Getenv, stdout, stderr)
 	case "contributor":
@@ -512,4 +517,114 @@ func contributorCmd(ctx context.Context, args []string, getenv func(string) stri
 		}
 		return tw.Flush()
 	})
+}
+
+const mirrorUsage = `usage: protodex mirror <action> [-db path] [flags]
+
+actions:
+  run     import the upstreams of the mirror config at their pins (idempotent)
+  status  list mirrored modules with their upstream, commit, license and import time
+
+flags:
+`
+
+// mirrorCmd implements `protodex mirror`. It opens the database exclusively,
+// so run it while the server is stopped.
+func mirrorCmd(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		_, _ = fmt.Fprint(stderr, mirrorUsage)
+		return errors.New("mirror: missing action")
+	}
+	action := args[0]
+	if action == "help" || action == "-h" || action == "-help" || action == "--help" {
+		_, err := fmt.Fprint(stdout, mirrorUsage)
+		return err
+	}
+	if action != "run" && action != "status" {
+		_, _ = fmt.Fprint(stderr, mirrorUsage)
+		return fmt.Errorf("mirror: unknown action %q", action)
+	}
+	fs := flag.NewFlagSet("mirror "+action, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dbPath := fs.String("db", getenv("PROTODEX_DB_PATH"), "SQLite database path (env PROTODEX_DB_PATH)")
+	blobDir := fs.String("blob-dir", getenv("PROTODEX_BLOB_DIR"), "blob directory (env PROTODEX_BLOB_DIR; default <db>.blobs)")
+	cfgPath := fs.String("config", cmp.Or(getenv("PROTODEX_MIRROR_CONFIG"), "mirror.yaml"), "mirror config (env PROTODEX_MIRROR_CONFIG)")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("mirror %s: unexpected arguments %q", action, fs.Args())
+	}
+	if *dbPath == "" {
+		return fmt.Errorf("mirror %s: -db or PROTODEX_DB_PATH is required", action)
+	}
+	var cfg *mirror.Config
+	if action == "run" {
+		var err error
+		if cfg, err = mirror.LoadFile(*cfgPath); err != nil {
+			return fmt.Errorf("mirror run: %w", err)
+		}
+	}
+	st, err := sqlite.Open(*dbPath)
+	if err != nil {
+		return fmt.Errorf("mirror %s: %w", action, err)
+	}
+	defer func() { _ = st.Close() }()
+	if err := st.Migrate(ctx); err != nil {
+		return fmt.Errorf("mirror %s: %w", action, err)
+	}
+	if action == "status" {
+		return mirrorStatus(ctx, st, stdout)
+	}
+	if *blobDir == "" {
+		*blobDir = *dbPath + ".blobs"
+	}
+	blobs, err := fsblob.New(*blobDir, 0)
+	if err != nil {
+		return fmt.Errorf("mirror run: open blob store: %w", err)
+	}
+	im := &mirror.Importer{Store: st, Blobs: blobs, Fetcher: mirror.GitFetcher{}}
+	results, err := im.Run(ctx, cfg)
+	for _, r := range results {
+		state := "up to date"
+		if r.Created {
+			state = "imported"
+		} else if len(r.LabelsMoved) > 0 {
+			state = "labels updated"
+		}
+		_, _ = fmt.Fprintf(stdout, "mirror: %s %s (upstream %s, commit %s)\n", r.Name, state, r.Upstream, r.Commit.ID)
+	}
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func mirrorStatus(ctx context.Context, st store.Store, stdout io.Writer) error {
+	owners, err := st.ListOwners(ctx)
+	if err != nil {
+		return err
+	}
+	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "MODULE\tCOMMIT\tREF\tUPSTREAM COMMIT\tLICENSE\tIMPORTED\tUPSTREAM")
+	for _, o := range owners {
+		if !o.Mirror {
+			continue
+		}
+		mods, err := st.ListModules(ctx, o.ID)
+		if err != nil {
+			return err
+		}
+		for _, m := range mods {
+			mcs, err := st.ListMirrorCommits(ctx, m.ID)
+			if err != nil {
+				return err
+			}
+			for _, mc := range mcs {
+				_, _ = fmt.Fprintf(tw, "%s/%s\t%s\t%s\t%s\t%s\t%s\t%s\n", o.Name, m.Name, mc.CommitID, mc.UpstreamRef,
+					mc.UpstreamCommit, mc.License, mc.ImportedAt.Format(time.RFC3339), mc.UpstreamURL)
+			}
+		}
+	}
+	return tw.Flush()
 }

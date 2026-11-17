@@ -86,6 +86,15 @@ func TestMigrateUpDownIdempotent(t *testing.T) {
 	if !hasColumn(t, s, "owners", "role") || !hasColumn(t, s, "module_contributors", "role") {
 		t.Fatal("00007 columns missing after up")
 	}
+	if !hasColumn(t, s, "commits", "source_control_url") {
+		t.Fatal("00008 column missing after up")
+	}
+	if err := s.Rollback(ctx); err != nil { // 00008: mirror provenance
+		t.Fatal(err)
+	}
+	if hasColumn(t, s, "commits", "source_control_url") {
+		t.Fatal("00008 not rolled back cleanly")
+	}
 	if err := s.Rollback(ctx); err != nil { // 00007: roles and contributors
 		t.Fatal(err)
 	}

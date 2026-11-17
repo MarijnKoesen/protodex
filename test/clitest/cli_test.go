@@ -17,10 +17,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/blob/fsblob"
+	"github.com/marijnkoesen/protodex/internal/mirror"
 	"github.com/marijnkoesen/protodex/internal/observability"
 	"github.com/marijnkoesen/protodex/internal/owner"
 	"github.com/marijnkoesen/protodex/internal/server"
@@ -34,6 +36,7 @@ type env struct {
 	buf    string
 	host   string // host:port used as the module remote
 	st     store.Store
+	blobs  *fsblob.Store
 	cliEnv []string
 }
 
@@ -90,10 +93,11 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	return &env{
-		t:    t,
-		buf:  bin,
-		host: strings.TrimPrefix(ts.URL, "https://"),
-		st:   st,
+		t:     t,
+		buf:   bin,
+		host:  strings.TrimPrefix(ts.URL, "https://"),
+		st:    st,
+		blobs: blobs,
 		cliEnv: []string{
 			"PATH=" + os.Getenv("PATH"),
 			"HOME=" + home,
@@ -428,5 +432,81 @@ message Trip { acme.weather.v1.Forecast forecast = 1; }
 		if _, err := os.Stat(filepath.Join(exp, p)); err != nil {
 			t.Fatalf("export %s: %v", app, err)
 		}
+	}
+}
+
+// fixtureFetcher serves a tiny stand-in for googleapis.
+type fixtureFetcher struct{}
+
+func (fixtureFetcher) Fetch(context.Context, string, string) (mirror.Snapshot, error) {
+	return mirror.Snapshot{Commit: strings.Repeat("ab", 20), Close: func() {}, FS: fstest.MapFS{
+		"LICENSE": {Data: []byte("Apache License 2.0\n")},
+		"google/api/http.proto": {Data: []byte(`syntax = "proto3";
+package google.api;
+option go_package = "google.golang.org/genproto/googleapis/api/annotations;annotations";
+message Http { string get = 1; }
+`)},
+		"google/api/annotations.proto": {Data: []byte(`syntax = "proto3";
+package google.api;
+import "google/api/http.proto";
+import "google/protobuf/descriptor.proto";
+option go_package = "google.golang.org/genproto/googleapis/api/annotations;annotations";
+extend google.protobuf.MethodOptions { Http http = 72295728; }
+`)},
+	}}, nil
+}
+
+// TestMirroredDependency mirrors a googleapis stand-in and depends on it:
+// dep update, build and push succeed, the mirror stays read-only for users
+// and re-running the mirror changes nothing.
+func TestMirroredDependency(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	cfg, err := mirror.Parse([]byte("upstreams:\n  - name: googleapis/googleapis\n    url: https://example.com/googleapis.git\n    ref: v1.0.0\n    license: Apache-2.0\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	im := &mirror.Importer{Store: e.st, Blobs: e.blobs, Fetcher: fixtureFetcher{}}
+	res, err := im.Run(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dep := e.host + "/googleapis/googleapis"
+	mod := e.host + "/acme/gateway"
+	e.ok("registry", "module", "create", mod, "--visibility=public")
+	dir := writeModule(t, mod, map[string]string{"acme/gateway/v1/gateway.proto": `syntax = "proto3";
+package acme.gateway.v1;
+import "google/api/annotations.proto";
+message PingRequest {}
+service Gateway { rpc Ping(PingRequest) returns (PingRequest) { option (google.api.http) = { get: "/v1/ping" }; } }
+`})
+	if err := os.WriteFile(filepath.Join(dir, "buf.yaml"), []byte("version: v2\nmodules:\n  - path: .\n    name: "+mod+"\ndeps:\n  - "+dep+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.runIn(dir, false, "dep", "update")
+	lock, err := os.ReadFile(filepath.Join(dir, "buf.lock")) //nolint:gosec // test temp dir
+	if err != nil || !strings.Contains(string(lock), res[0].Commit.ID) {
+		t.Fatalf("buf.lock = %s, %v", lock, err)
+	}
+	e.runIn(dir, false, "build")
+	e.pushDir(false, dir)
+
+	// Mirror owners are read-only for users, also through push.
+	e.fails("registry", "module", "create", e.host+"/googleapis/mine")
+	other := writeModule(t, dep, map[string]string{"a.proto": weatherProto})
+	e.pushDir(true, other)
+
+	// The upstream is shown as the commit's source and recorded.
+	var info map[string]any
+	e.json(&info, "registry", "commit", "info", dep+":"+res[0].Commit.ID)
+	t.Logf("mirrored commit: %v", info)
+	if info["source_control_url"] != "https://example.com/googleapis" {
+		t.Fatalf("commit info = %v", info)
+	}
+
+	again, err := im.Run(ctx, cfg)
+	if err != nil || again[0].Created || again[0].Commit.ID != res[0].Commit.ID {
+		t.Fatalf("re-run = %+v, %v", again, err)
 	}
 }

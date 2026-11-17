@@ -15,10 +15,11 @@ type Blob struct {
 }
 
 type Commit struct {
-	ID        string
-	ModuleID  string
-	Digest    string
-	CreatedAt int64
+	ID               string
+	ModuleID         string
+	Digest           string
+	CreatedAt        int64
+	SourceControlUrl string
 }
 
 type CommitDep struct {
@@ -56,6 +57,15 @@ type ManifestEntry struct {
 	CommitID   string
 	Path       string
 	BlobDigest string
+}
+
+type MirrorCommit struct {
+	CommitID       string
+	UpstreamUrl    string
+	UpstreamRef    string
+	UpstreamCommit string
+	License        string
+	ImportedAt     int64
 }
 
 type Module struct {

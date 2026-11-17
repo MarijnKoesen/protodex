@@ -36,6 +36,7 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 		"LabelIdentity":         testLabelIdentity,
 		"BlobGC":                testBlobGC,
 		"RolesAndContributors":  testRolesAndContributors,
+		"MirrorProvenance":      testMirrorProvenance,
 	}
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -669,4 +670,29 @@ func testRolesAndContributors(t *testing.T, s store.Store) {
 	if cs := must(s.ListUserContributions(ctx, a.ID)); len(cs) != 0 {
 		t.Fatalf("grants after module delete = %+v", cs)
 	}
+}
+
+func testMirrorProvenance(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	_, m := seed(t, s)
+	c := must(s.CreateCommit(ctx, store.Commit{ModuleID: m.ID, Digest: "b5:aa", SourceControlURL: "https://example.com/r/commit/abc"}))
+	if got := must(s.GetCommitByID(ctx, c.ID)); got.SourceControlURL != c.SourceControlURL {
+		t.Fatalf("source control url = %q", got.SourceControlURL)
+	}
+	_, err := s.GetMirrorCommit(ctx, c.ID)
+	is(t, err, store.ErrNotFound)
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	mc := store.MirrorCommit{CommitID: c.ID, UpstreamURL: "https://example.com/r.git", UpstreamRef: "v1",
+		UpstreamCommit: "abc", License: "Apache-2.0", ImportedAt: at}
+	if err := s.PutMirrorCommit(ctx, mc); err != nil {
+		t.Fatal(err)
+	}
+	if got := must(s.GetMirrorCommit(ctx, c.ID)); got != mc {
+		t.Fatalf("got %+v, want %+v", got, mc)
+	}
+	if got := must(s.ListMirrorCommits(ctx, m.ID)); len(got) != 1 || got[0] != mc {
+		t.Fatalf("list = %+v", got)
+	}
+	// Provenance must reference an existing commit.
+	is(t, s.PutMirrorCommit(ctx, store.MirrorCommit{CommitID: "nope", License: "MIT"}), store.ErrConflict)
 }

@@ -96,6 +96,19 @@ type Commit struct {
 	ModuleID  string
 	Digest    string // e.g. "b5:<hex>"; passed through for mirrors
 	CreatedAt time.Time
+	// SourceControlURL links the commit to its source (mirrors: the upstream
+	// commit). Empty when unknown.
+	SourceControlURL string
+}
+
+// MirrorCommit records where a mirrored commit came from.
+type MirrorCommit struct {
+	CommitID       string
+	UpstreamURL    string // git URL of the upstream repository
+	UpstreamRef    string // the pinned tag or commit from the mirror config
+	UpstreamCommit string // resolved upstream commit hash
+	License        string // SPDX identifier recorded at import
+	ImportedAt     time.Time
 }
 
 // Label is a movable pointer to a commit. Its ID is assigned on creation and
@@ -205,6 +218,13 @@ type Querier interface {
 	GetCommit(ctx context.Context, moduleID, id string) (Commit, error)
 	GetCommitByID(ctx context.Context, id string) (Commit, error)
 	ListCommits(ctx context.Context, moduleID string) ([]Commit, error) // newest first
+
+	// PutMirrorCommit records the provenance of a mirrored commit.
+	// GetMirrorCommit returns ErrNotFound for commits that were not
+	// mirrored; ListMirrorCommits is newest commit first.
+	PutMirrorCommit(ctx context.Context, m MirrorCommit) error
+	GetMirrorCommit(ctx context.Context, commitID string) (MirrorCommit, error)
+	ListMirrorCommits(ctx context.Context, moduleID string) ([]MirrorCommit, error)
 
 	// SetLabel creates the label or moves it to another commit, setting
 	// Archived, UpdatedBy and UpdatedAt. An existing label keeps its ID and
