@@ -24,6 +24,17 @@ func (q *Queries) AddManifestEntry(ctx context.Context, arg AddManifestEntryPara
 	return err
 }
 
+const countBlobRefs = `-- name: CountBlobRefs :one
+SELECT COUNT(*) FROM (SELECT 1 FROM manifest_entries WHERE blob_digest = ? LIMIT 1) AS r
+`
+
+func (q *Queries) CountBlobRefs(ctx context.Context, blobDigest string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countBlobRefs, blobDigest)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteManifest = `-- name: DeleteManifest :exec
 DELETE FROM manifest_entries WHERE commit_id = ?
 `
@@ -31,6 +42,19 @@ DELETE FROM manifest_entries WHERE commit_id = ?
 func (q *Queries) DeleteManifest(ctx context.Context, commitID string) error {
 	_, err := q.db.ExecContext(ctx, deleteManifest, commitID)
 	return err
+}
+
+const deleteUnreferencedBlob = `-- name: DeleteUnreferencedBlob :execrows
+DELETE FROM blobs WHERE digest = ?
+AND NOT EXISTS (SELECT 1 FROM manifest_entries m WHERE m.blob_digest = blobs.digest)
+`
+
+func (q *Queries) DeleteUnreferencedBlob(ctx context.Context, digest string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteUnreferencedBlob, digest)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getBlob = `-- name: GetBlob :one
@@ -61,6 +85,60 @@ func (q *Queries) GetManifest(ctx context.Context, commitID string) ([]ManifestE
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBlobDigests = `-- name: ListBlobDigests :many
+SELECT digest FROM blobs ORDER BY digest
+`
+
+func (q *Queries) ListBlobDigests(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listBlobDigests)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var digest string
+		if err := rows.Scan(&digest); err != nil {
+			return nil, err
+		}
+		items = append(items, digest)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReferencedBlobDigests = `-- name: ListReferencedBlobDigests :many
+SELECT DISTINCT blob_digest FROM manifest_entries ORDER BY blob_digest
+`
+
+func (q *Queries) ListReferencedBlobDigests(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listReferencedBlobDigests)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var blob_digest string
+		if err := rows.Scan(&blob_digest); err != nil {
+			return nil, err
+		}
+		items = append(items, blob_digest)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

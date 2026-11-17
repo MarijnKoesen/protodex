@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 )
 
 // DefaultMaxSize is the default upper bound on a single blob (5 GiB, the
@@ -74,6 +75,24 @@ type Store interface {
 	Exists(ctx context.Context, d Digest) (bool, error)
 	// Delete removes the blob. Deleting a missing blob is not an error.
 	Delete(ctx context.Context, d Digest) error
+}
+
+// Info describes a stored blob.
+type Info struct {
+	Digest Digest
+	Size   int64
+	// ModTime is when the blob was last written. Re-putting an existing
+	// blob is a no-op, so it does not refresh ModTime.
+	ModTime time.Time
+}
+
+// Lister is implemented by stores that can enumerate their blobs, which
+// garbage collection needs.
+type Lister interface {
+	// List calls fn for every blob, in no particular order. Blobs put or
+	// deleted while List runs may or may not be reported. An error from fn
+	// stops the walk and is returned.
+	List(ctx context.Context, fn func(Info) error) error
 }
 
 // Verifier wraps a reader, hashing and counting bytes and failing with

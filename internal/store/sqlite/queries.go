@@ -359,6 +359,39 @@ func (q *queries) GetManifest(ctx context.Context, commitID string) ([]store.Man
 	return mapAll(rows, err, func(e db.ManifestEntry) store.ManifestEntry { return store.ManifestEntry(e) })
 }
 
+func (q *queries) ListBlobDigests(ctx context.Context) ([]string, error) {
+	rows, err := q.r.ListBlobDigests(ctx)
+	return rows, mapErr(err)
+}
+
+func (q *queries) ListReferencedBlobDigests(ctx context.Context) ([]string, error) {
+	rows, err := q.r.ListReferencedBlobDigests(ctx)
+	return rows, mapErr(err)
+}
+
+// BlobReferenced reads through the writer so a transaction sees its own
+// (and, outside one, all committed) manifest writes.
+func (q *queries) BlobReferenced(ctx context.Context, digest string) (bool, error) {
+	n, err := q.w.CountBlobRefs(ctx, digest)
+	return n > 0, mapErr(err)
+}
+
+func (q *queries) DeleteBlob(ctx context.Context, digest string) error {
+	n, err := q.w.DeleteUnreferencedBlob(ctx, digest)
+	if err != nil || n > 0 {
+		return mapErr(err)
+	}
+	// Nothing deleted: either the row is missing (fine) or still referenced.
+	ref, err := q.BlobReferenced(ctx, digest)
+	if err != nil {
+		return err
+	}
+	if ref {
+		return fmt.Errorf("%w: blob %s is still referenced", store.ErrConflict, digest)
+	}
+	return nil
+}
+
 // --- tokens ---
 
 func tokenFrom(t db.Token) store.Token {

@@ -21,6 +21,7 @@ import (
 	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/blob"
 	"github.com/marijnkoesen/protodex/internal/config"
+	"github.com/marijnkoesen/protodex/internal/gc"
 	"github.com/marijnkoesen/protodex/internal/observability"
 	"github.com/marijnkoesen/protodex/internal/oidcauth"
 	"github.com/marijnkoesen/protodex/internal/store"
@@ -34,10 +35,7 @@ import (
 // owner, module, label, commit and upload services stay unimplemented
 // (UploadService also needs WithBlobs).
 func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observability, options ...Option) http.Handler {
-	var o serverOptions
-	for _, f := range options {
-		f(&o)
-	}
+	o := newServerOptions(options)
 	var authn *auth.Authenticator
 	if o.store != nil {
 		authn = &auth.Authenticator{Store: o.store, Limiter: o.limiter}
@@ -90,7 +88,8 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 			if o.store == nil || o.blobs == nil {
 				return modulev1connect.NewUploadServiceHandler(modulev1connect.UnimplementedUploadServiceHandler{}, opts...)
 			}
-			return modulev1connect.NewUploadServiceHandler(&uploadService{st: o.store, blobs: o.blobs, obs: obs, limits: o.limits.withDefaults()}, opts...)
+			return modulev1connect.NewUploadServiceHandler(&uploadService{st: o.store, blobs: o.blobs, obs: obs,
+				limits: o.limits.withDefaults(), leases: o.leases}, opts...)
 		},
 		func() (string, http.Handler) {
 			if o.store == nil {
@@ -144,11 +143,24 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 }
 
 type serverOptions struct {
+	gc      GCConfig
+	leases  gc.Leases
 	blobs   blob.Store
 	limits  UploadLimits
 	store   store.Store
 	limiter auth.Limiter
 	oidc    *oidcauth.Handler
+}
+
+func newServerOptions(options []Option) serverOptions {
+	var o serverOptions
+	for _, f := range options {
+		f(&o)
+	}
+	if o.leases == nil {
+		o.leases = gc.NewPins()
+	}
+	return o
 }
 
 // Option configures Handler and Serve.
@@ -161,6 +173,25 @@ func WithStore(st store.Store) Option { return func(o *serverOptions) { o.store 
 // WithBlobs sets the blob store file contents are pushed to. UploadService
 // needs both a store and a blob store; without them it stays unimplemented.
 func WithBlobs(b blob.Store) Option { return func(o *serverOptions) { o.blobs = b } }
+
+// WithBlobLeases sets the leases pushes pin their blobs with, so that a
+// garbage collector sharing them never deletes a blob an in-flight push
+// references. Default: a fresh in-process gc.Pins.
+func WithBlobLeases(l gc.Leases) Option { return func(o *serverOptions) { o.leases = l } }
+
+// GCConfig configures the in-process blob garbage collector.
+type GCConfig struct {
+	// Interval between runs; zero disables the collector.
+	Interval time.Duration
+	// Grace is the minimum blob age before deletion (zero: gc.DefaultGrace).
+	Grace time.Duration
+	// DryRun logs and counts what would be deleted without deleting.
+	DryRun bool
+}
+
+// WithGC runs the blob garbage collector inside Serve (it needs WithStore
+// and a listable WithBlobs). It shares its leases with the upload service.
+func WithGC(c GCConfig) Option { return func(o *serverOptions) { o.gc = c } }
 
 // WithUploadLimits bounds the files of a push.
 func WithUploadLimits(l UploadLimits) Option { return func(o *serverOptions) { o.limits = l } }
@@ -206,7 +237,24 @@ func Serve(ctx context.Context, cfg config.Config, log *slog.Logger, ln net.List
 		}
 	}()
 
-	srv := NewHTTPServer(cfg, Handler(log, cfg.MaxRequestBytes, observability.New(), options...))
+	obs := observability.New()
+	o := newServerOptions(options)
+	// Handler and collector must share one set of leases.
+	options = append(options, WithBlobLeases(o.leases))
+	srv := NewHTTPServer(cfg, Handler(log, cfg.MaxRequestBytes, obs, options...))
+
+	if o.gc.Interval > 0 && o.store != nil && o.blobs != nil {
+		col, err := gc.New(o.store, o.blobs, o.leases, gc.Options{Grace: o.gc.Grace, DryRun: o.gc.DryRun,
+			Metrics: obs.Metrics, Logger: log.With("component", "gc")})
+		if err != nil {
+			return err
+		}
+		gcCtx, stopGC := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() { defer close(done); col.Run(gcCtx, o.gc.Interval, gc.SingleProcess{}) }()
+		defer func() { stopGC(); <-done }()
+		log.Info("blob gc enabled", "interval", o.gc.Interval, "grace", o.gc.Grace, "dry_run", o.gc.DryRun)
+	}
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()

@@ -12,6 +12,7 @@ Prometheus text format at `GET /metrics` (unauthenticated; restrict at the netwo
 | `protodex_store_operation_duration_seconds` | histogram | `operation`, `status` | Metadata store latency (`status` = `ok`/`error`). |
 | `protodex_blob_operation_duration_seconds` | histogram | `operation`, `status` | Blob storage latency. |
 | `protodex_http_in_flight_requests` | gauge | – | HTTP requests being served. |
+| `protodex_gc_runs_total`, `protodex_gc_duration_seconds`, `protodex_gc_last_success_timestamp_seconds`, `protodex_gc_blobs_total`, `protodex_gc_bytes_total` | – | – | Blob garbage collection; see [gc.md](gc.md). |
 | `go_*`, `process_*` | – | – | Standard Go/process collectors. |
 
 Store and blob code should wrap calls with `Observability.Store` / `Observability.Blob`,

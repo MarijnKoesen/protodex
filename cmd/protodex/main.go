@@ -81,7 +81,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return fmt.Errorf("open blob store: %w", err)
 			}
 			opts = append(opts, server.WithBlobs(blobs),
-				server.WithUploadLimits(server.UploadLimits{MaxFiles: cfg.MaxPushFiles, MaxFileBytes: cfg.MaxPushFileBytes}))
+				server.WithUploadLimits(server.UploadLimits{MaxFiles: cfg.MaxPushFiles, MaxFileBytes: cfg.MaxPushFileBytes}),
+				// SQLite mode is single-process, so GC runs in-process.
+				server.WithGC(server.GCConfig{Interval: time.Duration(cfg.GCInterval),
+					Grace: time.Duration(cfg.GCGracePeriod), DryRun: cfg.GCDryRun}))
 			if cfg.OIDC.Enabled() {
 				opts = append(opts, server.WithOIDC(oidcauth.New(cfg.OIDC, st, cfg.Logger(stderr))))
 			}

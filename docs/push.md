@@ -16,6 +16,8 @@ The module must exist (`buf registry module create`); push does not create it.
 - File contents go to the blob store (`blob_dir`, default `<db_path>.blobs`;
   env `PROTODEX_BLOB_DIR`), keyed by SHA-256, so identical files are stored
   once across commits and modules. S3 is not wired into `serve` yet.
+  Blobs that end up unreferenced (deleted modules, failed pushes) are removed
+  by [garbage collection](gc.md).
 - Only module files are kept: `*.proto`, `LICENSE`, and the first of `buf.md`,
   `README.md`, `README.markdown`. Other files (`buf.yaml`, ...) are ignored.
 - Commit, manifest, dependency edges and label moves are written in one

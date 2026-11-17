@@ -53,6 +53,15 @@ func hasColumn(t *testing.T, s *Store, table, column string) bool {
 	return n == 1
 }
 
+func hasIndex(t *testing.T, s *Store, name string) bool {
+	t.Helper()
+	var n int
+	if err := s.writer.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?`, name).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n == 1
+}
+
 func TestMigrateUpDownIdempotent(t *testing.T) {
 	ctx := context.Background()
 	s := open(t, filepath.Join(t.TempDir(), "p.db"))
@@ -70,6 +79,15 @@ func TestMigrateUpDownIdempotent(t *testing.T) {
 	}
 	if !hasColumn(t, s, "labels", "id") || !hasColumn(t, s, "modules", "updated_at") {
 		t.Fatal("00004 columns missing after up")
+	}
+	if !hasIndex(t, s, "manifest_entries_blob_idx") {
+		t.Fatal("00006 index missing after up")
+	}
+	if err := s.Rollback(ctx); err != nil { // 00006: blob GC index
+		t.Fatal(err)
+	}
+	if hasIndex(t, s, "manifest_entries_blob_idx") {
+		t.Fatal("00006 not rolled back cleanly")
 	}
 	for range 2 { // 00005 (label id index), 00004 (module/label columns)
 		if err := s.Rollback(ctx); err != nil {

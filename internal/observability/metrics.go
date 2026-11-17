@@ -31,6 +31,12 @@ type Metrics struct {
 	storeDuration *prometheus.HistogramVec
 	blobDuration  *prometheus.HistogramVec
 	httpInFlight  prometheus.Gauge
+
+	gcRuns        *prometheus.CounterVec
+	gcDuration    prometheus.Histogram
+	gcLastSuccess prometheus.Gauge
+	gcBlobs       *prometheus.CounterVec
+	gcBytes       *prometheus.CounterVec
 }
 
 // NewMetrics creates a registry with Go/process collectors and Protodex metrics.
@@ -63,10 +69,32 @@ func NewMetrics() *Metrics {
 		Name: "protodex_http_in_flight_requests",
 		Help: "HTTP requests currently being served.",
 	})
+	m.gcRuns = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "protodex_gc_runs_total",
+		Help: "Blob garbage-collection runs by result (ok or error).",
+	}, []string{"result"})
+	m.gcDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "protodex_gc_duration_seconds",
+		Help:    "Duration of blob garbage-collection runs.",
+		Buckets: prometheus.ExponentialBuckets(0.01, 4, 10),
+	})
+	m.gcLastSuccess = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "protodex_gc_last_success_timestamp_seconds",
+		Help: "Unix time of the last successful blob garbage-collection run.",
+	})
+	m.gcBlobs = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "protodex_gc_blobs_total",
+		Help: "Unreferenced blobs handled by garbage collection, by action.",
+	}, []string{"action"})
+	m.gcBytes = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "protodex_gc_bytes_total",
+		Help: "Bytes of unreferenced blobs deleted (or, in dry-run mode, that would be).",
+	}, []string{"action"})
 	m.reg.MustRegister(
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		m.rpcTotal, m.rpcDuration, m.uploadBytes, m.storeDuration, m.blobDuration, m.httpInFlight,
+		m.gcRuns, m.gcDuration, m.gcLastSuccess, m.gcBlobs, m.gcBytes,
 	)
 	return m
 }
@@ -89,6 +117,37 @@ func (m *Metrics) ObserveRPC(procedure, code string, d time.Duration) {
 func (m *Metrics) AddUploadBytes(n int64) {
 	if n > 0 {
 		m.uploadBytes.Add(float64(n))
+	}
+}
+
+// GC actions recorded by AddGCBlobs.
+const (
+	GCDeleted    = "deleted"    // unreferenced and removed
+	GCDryRun     = "dry_run"    // would have been removed (dry-run mode)
+	GCInFlight   = "in_flight"  // spared: pinned by an in-flight upload
+	GCReferenced = "referenced" // spared: referenced again when re-checked
+	GCFailed     = "failed"     // removal failed; retried next run
+)
+
+// ObserveGCRun records a finished garbage-collection run.
+func (m *Metrics) ObserveGCRun(err error, d time.Duration) {
+	result := "ok"
+	if err != nil {
+		result = "error"
+	} else {
+		m.gcLastSuccess.SetToCurrentTime()
+	}
+	m.gcRuns.WithLabelValues(result).Inc()
+	m.gcDuration.Observe(d.Seconds())
+}
+
+// AddGCBlobs records n blobs (of size bytes in total) handled with action.
+func (m *Metrics) AddGCBlobs(action string, n int, bytes int64) {
+	if n > 0 {
+		m.gcBlobs.WithLabelValues(action).Add(float64(n))
+	}
+	if bytes > 0 && (action == GCDeleted || action == GCDryRun) {
+		m.gcBytes.WithLabelValues(action).Add(float64(bytes))
 	}
 }
 

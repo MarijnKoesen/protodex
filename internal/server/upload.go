@@ -16,6 +16,7 @@ import (
 	"github.com/marijnkoesen/protodex/gen/buf/registry/module/v1/modulev1connect"
 	"github.com/marijnkoesen/protodex/internal/b5"
 	"github.com/marijnkoesen/protodex/internal/blob"
+	"github.com/marijnkoesen/protodex/internal/gc"
 	"github.com/marijnkoesen/protodex/internal/module"
 	"github.com/marijnkoesen/protodex/internal/observability"
 	"github.com/marijnkoesen/protodex/internal/store"
@@ -52,7 +53,10 @@ func (l UploadLimits) withDefaults() UploadLimits {
 // (content-addressed, so identical files are stored once), and finally one
 // metadata transaction writes commits, manifests, dependency edges and label
 // moves. Blobs written by a push that then fails are unreferenced but
-// harmless. The commit digest is computed by the server (b5, see package b5)
+// harmless until garbage collection (package gc) removes them. To keep the
+// collector from deleting a blob between the blob write and the commit that
+// references it (identical content may already be stored, unreferenced and
+// old), the push pins its blob digests for that whole window. The commit digest is computed by the server (b5, see package b5)
 // from the files and the digests of the dependency commits.
 type uploadService struct {
 	modulev1connect.UnimplementedUploadServiceHandler
@@ -60,6 +64,7 @@ type uploadService struct {
 	blobs  blob.Store
 	obs    *observability.Observability
 	limits UploadLimits
+	leases gc.Leases
 }
 
 // pushItem is one validated module of a push.
@@ -166,6 +171,18 @@ func (s *uploadService) resolvePush(ctx context.Context, q store.Querier, req *m
 	return items, nil
 }
 
+// blobDigests returns the distinct blob digests of the items' files.
+func blobDigests(items []*pushItem) []string {
+	var ds []string
+	for _, it := range items {
+		for _, f := range it.files {
+			ds = append(ds, blob.DigestOf(f.Content).String())
+		}
+	}
+	slices.Sort(ds)
+	return slices.Compact(ds)
+}
+
 // storeBlobs writes the files to the blob store and returns, per path, the
 // blob digest.
 func (s *uploadService) storeBlobs(ctx context.Context, items []*pushItem) (map[string]store.Blob, error) {
@@ -208,6 +225,17 @@ func (s *uploadService) Upload(ctx context.Context, req *connect.Request[modulev
 	if err != nil {
 		return nil, err
 	}
+	// Pin before writing: from here until the transaction ends, garbage
+	// collection must not delete these blobs.
+	release, err := s.leases.Pin(ctx, blobDigests(items))
+	if err != nil {
+		code := connect.CodeCanceled
+		if errors.Is(err, context.DeadlineExceeded) {
+			code = connect.CodeDeadlineExceeded
+		}
+		return nil, connect.NewError(code, err)
+	}
+	defer release()
 	blobs, err := s.storeBlobs(ctx, items)
 	if err != nil {
 		return nil, internalErr(err)
