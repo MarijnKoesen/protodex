@@ -10,8 +10,8 @@ cd "$(git rev-parse --show-toplevel)"
 missing=0
 while IFS= read -r -d '' f; do
   [[ -f "$f" ]] || continue
-  # Vendored upstream protos and generated code keep their own headers.
-  case "$f" in proto/buf/*|gen/*) continue ;; esac
+  # Vendored upstream protos and generated code (incl. sqlc output) keep their own headers.
+  case "$f" in proto/buf/*|gen/*|internal/store/sqlite/db/*) continue ;; esac
   if ! head -n 5 "$f" | grep -q 'SPDX-License-Identifier: Apache-2.0'; then
     echo "missing SPDX header: $f" >&2
     missing=1
