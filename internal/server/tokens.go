@@ -16,6 +16,7 @@ import (
 	iamv1 "github.com/marijnkoesen/protodex/gen/buf/registry/iam/v1"
 	"github.com/marijnkoesen/protodex/gen/buf/registry/iam/v1/iamv1connect"
 	ownerv1 "github.com/marijnkoesen/protodex/gen/buf/registry/owner/v1"
+	"github.com/marijnkoesen/protodex/internal/audit"
 	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/store"
 )
@@ -34,6 +35,14 @@ func caller(ctx context.Context) (auth.Identity, error) {
 		return auth.Identity{}, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
 	}
 	return id, nil
+}
+
+// record appends an audit event inside q's transaction.
+func record(ctx context.Context, q store.Querier, typ, subject string, data map[string]any) error {
+	if _, err := audit.Record(ctx, q, audit.Event{Type: typ, Subject: subject, Data: data}); err != nil {
+		return internalErr(err)
+	}
+	return nil
 }
 
 func internalErr(err error) error {
@@ -213,6 +222,10 @@ func (s *tokenService) CreateTokens(ctx context.Context, req *connect.Request[ia
 			if err != nil {
 				return err
 			}
+			if err := record(ctx, q, audit.TokenCreated, me.Owner.Name, map[string]any{
+				"token_id": t.ID, "token_name": t.Name, "expires": t.ExpiresAt}); err != nil {
+				return err
+			}
 			resp.Values = append(resp.Values, &iamv1.CreateTokensResponse_Value{Token: tokenProto(t, me.Owner.ID), Secret: secret})
 		}
 		return nil
@@ -230,17 +243,26 @@ func (s *tokenService) DeleteTokens(ctx context.Context, req *connect.Request[ia
 		return nil, err
 	}
 	var ids []string
+	names := map[string]string{}
 	for _, ref := range req.Msg.GetTokenRefs() {
 		t, err := s.findToken(ctx, me, ref)
 		if err != nil {
 			return nil, err
 		}
 		ids = append(ids, t.ID)
+		names[t.ID] = t.Name
 	}
 	// All-or-nothing: a failure must not leave a partial revocation behind.
 	err = s.st.WithTx(ctx, func(q store.Querier) error {
 		for _, id := range ids {
-			if err := q.DeleteToken(ctx, id); err != nil && !errors.Is(err, store.ErrNotFound) {
+			if err := q.DeleteToken(ctx, id); err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					continue
+				}
+				return err
+			}
+			if err := record(ctx, q, audit.TokenDeleted, me.Owner.Name, map[string]any{
+				"token_id": id, "token_name": names[id]}); err != nil {
 				return err
 			}
 		}

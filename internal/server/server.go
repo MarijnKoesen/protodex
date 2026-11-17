@@ -18,6 +18,8 @@ import (
 	"github.com/marijnkoesen/protodex/gen/buf/registry/iam/v1/iamv1connect"
 	"github.com/marijnkoesen/protodex/gen/buf/registry/module/v1/modulev1connect"
 	"github.com/marijnkoesen/protodex/gen/buf/registry/owner/v1/ownerv1connect"
+	"github.com/marijnkoesen/protodex/gen/protodex/audit/v1/auditv1connect"
+	"github.com/marijnkoesen/protodex/gen/protodex/webhook/v1/webhookv1connect"
 	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/blob"
 	"github.com/marijnkoesen/protodex/internal/config"
@@ -27,6 +29,7 @@ import (
 	"github.com/marijnkoesen/protodex/internal/oidcauth"
 	"github.com/marijnkoesen/protodex/internal/store"
 	"github.com/marijnkoesen/protodex/internal/version"
+	"github.com/marijnkoesen/protodex/internal/webhook"
 	"github.com/marijnkoesen/protodex/internal/webui"
 )
 
@@ -133,6 +136,18 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 			}
 			return iamv1connect.NewTokenServiceHandler(&tokenService{st: o.store}, opts...)
 		},
+		func() (string, http.Handler) {
+			if o.store == nil {
+				return webhookv1connect.NewWebhookServiceHandler(webhookv1connect.UnimplementedWebhookServiceHandler{}, opts...)
+			}
+			return webhookv1connect.NewWebhookServiceHandler(&webhookService{st: o.store}, opts...)
+		},
+		func() (string, http.Handler) {
+			if o.store == nil {
+				return auditv1connect.NewAuditServiceHandler(auditv1connect.UnimplementedAuditServiceHandler{}, opts...)
+			}
+			return auditv1connect.NewAuditServiceHandler(&auditService{st: o.store}, opts...)
+		},
 	} {
 		path, h := reg()
 		mux.Handle(path, h)
@@ -170,6 +185,7 @@ type serverOptions struct {
 	store   store.Store
 	limiter auth.Limiter
 	oidc    *oidcauth.Handler
+	hooks   WebhookConfig
 }
 
 func newServerOptions(options []Option) serverOptions {
@@ -212,6 +228,20 @@ type GCConfig struct {
 // WithGC runs the blob garbage collector inside Serve (it needs WithStore
 // and a listable WithBlobs). It shares its leases with the upload service.
 func WithGC(c GCConfig) Option { return func(o *serverOptions) { o.gc = c } }
+
+// WebhookConfig configures the in-process webhook delivery worker.
+type WebhookConfig struct {
+	// Interval between polls for due deliveries; zero disables delivery
+	// (events are still recorded and queued).
+	Interval time.Duration
+	// Timeout per delivery attempt and MaxAttempts before giving up; zero
+	// selects the webhook package defaults.
+	Timeout     time.Duration
+	MaxAttempts int
+}
+
+// WithWebhooks runs the webhook delivery worker inside Serve (needs WithStore).
+func WithWebhooks(c WebhookConfig) Option { return func(o *serverOptions) { o.hooks = c } }
 
 // WithUploadLimits bounds the files of a push.
 func WithUploadLimits(l UploadLimits) Option { return func(o *serverOptions) { o.limits = l } }
@@ -274,6 +304,16 @@ func Serve(ctx context.Context, cfg config.Config, log *slog.Logger, ln net.List
 		go func() { defer close(done); col.Run(gcCtx, o.gc.Interval, gc.SingleProcess{}) }()
 		defer func() { stopGC(); <-done }()
 		log.Info("blob gc enabled", "interval", o.gc.Interval, "grace", o.gc.Grace, "dry_run", o.gc.DryRun)
+	}
+
+	if o.hooks.Interval > 0 && o.store != nil {
+		w := webhook.New(o.store, webhook.Options{Timeout: o.hooks.Timeout, MaxAttempts: o.hooks.MaxAttempts,
+			Logger: log.With("component", "webhook")})
+		whCtx, stopWH := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() { defer close(done); w.Run(whCtx, o.hooks.Interval) }()
+		defer func() { stopWH(); <-done }()
+		log.Info("webhook delivery enabled", "interval", o.hooks.Interval)
 	}
 
 	errc := make(chan error, 1)

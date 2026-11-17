@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/marijnkoesen/protodex/internal/audit"
 	"github.com/marijnkoesen/protodex/internal/store"
 )
 
@@ -39,6 +40,10 @@ func SetRole(ctx context.Context, q store.Querier, name, role string) (store.Own
 		return store.Owner{}, fmt.Errorf("%q is %s: only users have roles", name, describe(o))
 	}
 	if err := q.SetOwnerRole(ctx, o.ID, role); err != nil {
+		return store.Owner{}, err
+	}
+	if _, err := audit.Record(ctx, q, audit.Event{Type: audit.UserRoleChanged, Subject: o.Name,
+		Data: map[string]any{"user_id": o.ID, "from": o.Role, "to": role}}); err != nil {
 		return store.Owner{}, err
 	}
 	o.Role = role

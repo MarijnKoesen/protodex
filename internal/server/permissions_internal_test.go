@@ -11,11 +11,11 @@ import (
 )
 
 // TestEveryProcedureHasAPolicy guards the default-deny policy table: every
-// RPC of the vendored registry services must be listed, and nothing else.
+// RPC of the vendored registry services and of protodex's own services must be listed, and nothing else.
 func TestEveryProcedureHasAPolicy(t *testing.T) {
 	seen := map[string]bool{authnAlphaGetCurrentUser: true}
 	protoregistry.GlobalFiles.RangeFiles(func(fd protoreflect.FileDescriptor) bool {
-		if !strings.HasPrefix(string(fd.Package()), "buf.registry.") {
+		if pkg := string(fd.Package()); !strings.HasPrefix(pkg, "buf.registry.") && !strings.HasPrefix(pkg, "protodex.") {
 			return true
 		}
 		for i := range fd.Services().Len() {

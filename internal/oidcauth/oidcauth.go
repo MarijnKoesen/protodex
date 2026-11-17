@@ -26,6 +26,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
+	"github.com/marijnkoesen/protodex/internal/audit"
 	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/config"
 	"github.com/marijnkoesen/protodex/internal/store"
@@ -412,6 +413,10 @@ func (h *Handler) provision(ctx context.Context, who Who) (secret string, owner 
 				if err := q.SetOwnerRole(ctx, owner.ID, who.Role); err != nil {
 					return err
 				}
+				if _, err := audit.Record(ctx, q, audit.Event{Type: audit.UserRoleChanged, Subject: owner.Name, Actor: &owner,
+					Data: map[string]any{"user_id": owner.ID, "from": owner.Role, "to": who.Role, "source": "oidc"}}); err != nil {
+					return err
+				}
 				owner.Role = who.Role
 			}
 		case errors.Is(err, store.ErrNotFound):
@@ -425,8 +430,13 @@ func (h *Handler) provision(ctx context.Context, who Who) (secret string, owner 
 		default:
 			return err
 		}
-		_, err = q.CreateToken(ctx, store.Token{OwnerID: owner.ID, Name: "oidc-login " + now.UTC().Format("2006-01-02 15:04"),
+		tok, err := q.CreateToken(ctx, store.Token{OwnerID: owner.ID, Name: "oidc-login " + now.UTC().Format("2006-01-02 15:04"),
 			Hash: auth.HashSecret(secret), ExpiresAt: &exp})
+		if err != nil {
+			return err
+		}
+		_, err = audit.Record(ctx, q, audit.Event{Type: audit.TokenCreated, Subject: owner.Name, Actor: &owner,
+			Data: map[string]any{"token_id": tok.ID, "token_name": tok.Name, "expires": tok.ExpiresAt, "source": "oidc"}})
 		return err
 	})
 	return secret, owner, exp, err

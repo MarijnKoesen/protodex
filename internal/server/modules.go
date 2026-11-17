@@ -16,6 +16,7 @@ import (
 
 	modulev1 "github.com/marijnkoesen/protodex/gen/buf/registry/module/v1"
 	"github.com/marijnkoesen/protodex/gen/buf/registry/module/v1/modulev1connect"
+	"github.com/marijnkoesen/protodex/internal/audit"
 	"github.com/marijnkoesen/protodex/internal/module"
 	"github.com/marijnkoesen/protodex/internal/store"
 )
@@ -272,6 +273,10 @@ func (s *moduleService) CreateModules(ctx context.Context, req *connect.Request[
 			if err != nil {
 				return internalErr(err)
 			}
+			if err := record(ctx, q, audit.ModuleCreated, o.Name+"/"+m.Name, map[string]any{
+				"module_id": m.ID, "visibility": m.Visibility}); err != nil {
+				return err
+			}
 			resp.Modules = append(resp.Modules, moduleProto(m))
 		}
 		return nil
@@ -298,6 +303,7 @@ func (s *moduleService) UpdateModules(ctx context.Context, req *connect.Request[
 			if err := requireModule(ctx, q, o, m, permAdmin); err != nil {
 				return err
 			}
+			before := m
 			if v.Visibility != nil {
 				m.Visibility = visibilityFromProto[v.GetVisibility()]
 			}
@@ -328,6 +334,19 @@ func (s *moduleService) UpdateModules(ctx context.Context, req *connect.Request[
 			if err != nil {
 				return internalErr(err)
 			}
+			data := map[string]any{"module_id": m.ID}
+			if before.Visibility != m.Visibility {
+				data["visibility"] = map[string]string{"from": before.Visibility, "to": m.Visibility}
+			}
+			if before.Deprecated != m.Deprecated {
+				data["deprecated"] = m.Deprecated
+			}
+			if before.DefaultLabel != m.DefaultLabel {
+				data["default_label"] = m.DefaultLabel
+			}
+			if err := record(ctx, q, audit.ModuleUpdated, o.Name+"/"+m.Name, data); err != nil {
+				return err
+			}
 			resp.Modules = append(resp.Modules, moduleProto(m))
 		}
 		return nil
@@ -354,6 +373,9 @@ func (s *moduleService) DeleteModules(ctx context.Context, req *connect.Request[
 			}
 			if err := q.DeleteModule(ctx, m.ID); err != nil {
 				return internalErr(err)
+			}
+			if err := record(ctx, q, audit.ModuleDeleted, o.Name+"/"+m.Name, map[string]any{"module_id": m.ID}); err != nil {
+				return err
 			}
 		}
 		return nil

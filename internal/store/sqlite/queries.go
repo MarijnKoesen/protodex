@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"modernc.org/sqlite"
@@ -498,4 +499,121 @@ func (q *queries) GetIdentity(ctx context.Context, issuer, subject string) (stor
 func (q *queries) UpdateIdentity(ctx context.Context, i store.Identity) error {
 	return existing(q.w.UpdateIdentity(ctx, db.UpdateIdentityParams{Email: i.Email, Role: i.Role,
 		LastLoginAt: ts(i.LastLoginAt).UnixMicro(), Issuer: i.Issuer, Subject: i.Subject}))
+}
+
+// --- audit log, webhooks and deliveries ---
+
+func auditFrom(e db.AuditEvent) store.AuditEvent {
+	return store.AuditEvent{ID: e.ID, Type: e.Type, ActorID: e.ActorID, ActorName: e.ActorName,
+		Subject: e.Subject, Data: e.Data, CreatedAt: fromTS(e.CreatedAt)}
+}
+
+func (q *queries) CreateAuditEvent(ctx context.Context, e store.AuditEvent) (store.AuditEvent, error) {
+	e.CreatedAt = ts(e.CreatedAt)
+	if e.ID == "" {
+		e.ID = fmt.Sprintf("%016x%s", e.CreatedAt.UnixMicro(), newID()[:16])
+	}
+	if e.Data == "" {
+		e.Data = "{}"
+	}
+	err := q.w.CreateAuditEvent(ctx, db.CreateAuditEventParams{ID: e.ID, Type: e.Type, ActorID: e.ActorID,
+		ActorName: e.ActorName, Subject: e.Subject, Data: e.Data, CreatedAt: e.CreatedAt.UnixMicro()})
+	return e, mapErr(err)
+}
+
+func (q *queries) GetAuditEvent(ctx context.Context, id string) (store.AuditEvent, error) {
+	e, err := q.r.GetAuditEvent(ctx, id)
+	return auditFrom(e), mapErr(err)
+}
+
+func (q *queries) ListAuditEvents(ctx context.Context, after, eventType string, limit int) ([]store.AuditEvent, error) {
+	rows, err := q.r.ListAuditEvents(ctx, db.ListAuditEventsParams{After: after, Type: eventType, Max: int64(limit)})
+	return mapAll(rows, err, auditFrom)
+}
+
+func webhookFrom(w db.Webhook) store.Webhook {
+	var types []string
+	if w.EventTypes != "" {
+		types = strings.Split(w.EventTypes, ",")
+	}
+	return store.Webhook{ID: w.ID, URL: w.Url, Secret: w.Secret, Description: w.Description, EventTypes: types,
+		Active: w.Active != 0, CreatedAt: fromTS(w.CreatedAt), UpdatedAt: fromTS(w.UpdatedAt)}
+}
+
+func (q *queries) CreateWebhook(ctx context.Context, w store.Webhook) (store.Webhook, error) {
+	if w.ID == "" {
+		w.ID = newID()
+	}
+	w.CreatedAt = ts(w.CreatedAt)
+	if w.UpdatedAt.IsZero() {
+		w.UpdatedAt = w.CreatedAt
+	}
+	w.UpdatedAt = ts(w.UpdatedAt)
+	err := q.w.CreateWebhook(ctx, db.CreateWebhookParams{ID: w.ID, Url: w.URL, Secret: w.Secret,
+		Description: w.Description, EventTypes: strings.Join(w.EventTypes, ","), Active: b2i(w.Active),
+		CreatedAt: w.CreatedAt.UnixMicro(), UpdatedAt: w.UpdatedAt.UnixMicro()})
+	return w, mapErr(err)
+}
+
+func (q *queries) GetWebhook(ctx context.Context, id string) (store.Webhook, error) {
+	w, err := q.r.GetWebhook(ctx, id)
+	return webhookFrom(w), mapErr(err)
+}
+
+func (q *queries) ListWebhooks(ctx context.Context) ([]store.Webhook, error) {
+	rows, err := q.r.ListWebhooks(ctx)
+	return mapAll(rows, err, webhookFrom)
+}
+
+func (q *queries) UpdateWebhook(ctx context.Context, w store.Webhook) (store.Webhook, error) {
+	now := ts(time.Time{})
+	err := existing(q.w.UpdateWebhook(ctx, db.UpdateWebhookParams{Url: w.URL, Description: w.Description,
+		EventTypes: strings.Join(w.EventTypes, ","), Active: b2i(w.Active), UpdatedAt: now.UnixMicro(), ID: w.ID}))
+	if err != nil {
+		return store.Webhook{}, err
+	}
+	return q.GetWebhook(ctx, w.ID)
+}
+
+func (q *queries) DeleteWebhook(ctx context.Context, id string) error {
+	return existing(q.w.DeleteWebhook(ctx, id))
+}
+
+func deliveryFrom(d db.WebhookDelivery) store.Delivery {
+	return store.Delivery{ID: d.ID, WebhookID: d.WebhookID, EventID: d.EventID, Status: d.Status,
+		Attempts: int(d.Attempts), NextAttemptAt: fromTS(d.NextAttemptAt), LastStatus: int(d.LastStatus),
+		LastError: d.LastError, CreatedAt: fromTS(d.CreatedAt), UpdatedAt: fromTS(d.UpdatedAt)}
+}
+
+func (q *queries) CreateDelivery(ctx context.Context, d store.Delivery) (store.Delivery, error) {
+	if d.ID == "" {
+		d.ID = fmt.Sprintf("%016x%s", ts(time.Time{}).UnixMicro(), newID()[:16])
+	}
+	if d.Status == "" {
+		d.Status = store.DeliveryPending
+	}
+	d.CreatedAt = ts(d.CreatedAt)
+	d.UpdatedAt = d.CreatedAt
+	d.NextAttemptAt = ts(d.NextAttemptAt)
+	err := q.w.CreateDelivery(ctx, db.CreateDeliveryParams{ID: d.ID, WebhookID: d.WebhookID, EventID: d.EventID,
+		Status: d.Status, Attempts: int64(d.Attempts), NextAttemptAt: d.NextAttemptAt.UnixMicro(),
+		LastStatus: int64(d.LastStatus), LastError: d.LastError, CreatedAt: d.CreatedAt.UnixMicro(),
+		UpdatedAt: d.UpdatedAt.UnixMicro()})
+	return d, mapErr(err)
+}
+
+func (q *queries) ListDueDeliveries(ctx context.Context, now time.Time, limit int) ([]store.Delivery, error) {
+	rows, err := q.r.ListDueDeliveries(ctx, db.ListDueDeliveriesParams{NextAttemptAt: ts(now).UnixMicro(), Limit: int64(limit)})
+	return mapAll(rows, err, deliveryFrom)
+}
+
+func (q *queries) ListDeliveries(ctx context.Context, webhookID, after string, limit int) ([]store.Delivery, error) {
+	rows, err := q.r.ListDeliveries(ctx, db.ListDeliveriesParams{WebhookID: webhookID, After: after, Max: int64(limit)})
+	return mapAll(rows, err, deliveryFrom)
+}
+
+func (q *queries) UpdateDelivery(ctx context.Context, d store.Delivery) error {
+	return existing(q.w.UpdateDelivery(ctx, db.UpdateDeliveryParams{Status: d.Status, Attempts: int64(d.Attempts),
+		NextAttemptAt: ts(d.NextAttemptAt).UnixMicro(), LastStatus: int64(d.LastStatus), LastError: d.LastError,
+		UpdatedAt: ts(time.Time{}).UnixMicro(), ID: d.ID}))
 }

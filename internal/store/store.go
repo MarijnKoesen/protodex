@@ -164,6 +164,53 @@ type Identity struct {
 	LastLoginAt time.Time
 }
 
+// AuditEvent is one entry of the audit log. IDs sort by creation time and
+// double as paging cursors.
+type AuditEvent struct {
+	ID        string
+	Type      string // e.g. "protodex.push.created"
+	ActorID   string // owner ID of the acting user; empty for system/CLI
+	ActorName string
+	Subject   string // what it concerns, e.g. "acme/petapis"
+	Data      string // JSON object with event details; never secrets
+	CreatedAt time.Time
+}
+
+// Webhook is a subscriber of audit events. Secret signs deliveries (HMAC).
+type Webhook struct {
+	ID          string
+	URL         string
+	Secret      string
+	Description string
+	// EventTypes selects events: exact types or prefixes ending in ".*".
+	// Empty selects all events.
+	EventTypes []string
+	Active     bool
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// Delivery states.
+const (
+	DeliveryPending   = "pending"
+	DeliveryDelivered = "delivered"
+	DeliveryFailed    = "failed" // retries exhausted
+)
+
+// Delivery is the durable queue entry of one event for one webhook.
+type Delivery struct {
+	ID            string
+	WebhookID     string
+	EventID       string
+	Status        string
+	Attempts      int
+	NextAttemptAt time.Time
+	LastStatus    int // HTTP status of the last attempt; 0 for none/transport error
+	LastError     string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 // Querier is the set of data operations, available both on a Store and
 // inside a transaction. Get/List methods return ErrNotFound for missing
 // single rows; creates return ErrConflict on duplicates or dangling
@@ -240,6 +287,29 @@ type Querier interface {
 	ListTokens(ctx context.Context, ownerID string) ([]Token, error)
 	TouchToken(ctx context.Context, id string, at time.Time) error
 	DeleteToken(ctx context.Context, id string) error
+
+	// CreateAuditEvent appends an event, filling ID and CreatedAt when zero.
+	CreateAuditEvent(ctx context.Context, e AuditEvent) (AuditEvent, error)
+	GetAuditEvent(ctx context.Context, id string) (AuditEvent, error)
+	// ListAuditEvents returns events with ID > after, oldest first, at most
+	// limit, optionally only of one exact type.
+	ListAuditEvents(ctx context.Context, after, eventType string, limit int) ([]AuditEvent, error)
+
+	CreateWebhook(ctx context.Context, w Webhook) (Webhook, error)
+	GetWebhook(ctx context.Context, id string) (Webhook, error)
+	ListWebhooks(ctx context.Context) ([]Webhook, error) // oldest first
+	// UpdateWebhook stores URL, Description, EventTypes and Active.
+	UpdateWebhook(ctx context.Context, w Webhook) (Webhook, error)
+	DeleteWebhook(ctx context.Context, id string) error // also deletes its deliveries
+
+	CreateDelivery(ctx context.Context, d Delivery) (Delivery, error)
+	// ListDueDeliveries returns pending deliveries with NextAttemptAt <= now,
+	// oldest first.
+	ListDueDeliveries(ctx context.Context, now time.Time, limit int) ([]Delivery, error)
+	// ListDeliveries returns a webhook's deliveries with ID > after, oldest first.
+	ListDeliveries(ctx context.Context, webhookID, after string, limit int) ([]Delivery, error)
+	// UpdateDelivery stores Status, Attempts, NextAttemptAt, LastStatus and LastError.
+	UpdateDelivery(ctx context.Context, d Delivery) error
 
 	CreateIdentity(ctx context.Context, i Identity) (Identity, error)
 	GetIdentity(ctx context.Context, issuer, subject string) (Identity, error)

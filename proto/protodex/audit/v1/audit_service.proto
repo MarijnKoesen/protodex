@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+// Protodex-native API (not part of the buf registry API): read the audit
+// log. Instance admins only.
+package protodex.audit.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// One audit log entry.
+message Event {
+  string id = 1;
+  // e.g. "protodex.push.created".
+  string type = 2;
+  // Owner ID and name of the acting user; empty for system or CLI actions.
+  string actor_id = 3;
+  string actor_name = 4;
+  // What the event concerns, e.g. "acme/petapis".
+  string subject = 5;
+  // JSON object with details; never contains secrets.
+  string data_json = 6;
+  google.protobuf.Timestamp create_time = 7;
+}
+
+message ListEventsRequest {
+  // Only events of this exact type.
+  string type = 1;
+  // Cursor: the next_page_token of the previous response.
+  string page_token = 2;
+  // Maximum events to return (default 100, at most 500).
+  int32 page_size = 3;
+}
+
+message ListEventsResponse {
+  // Oldest first.
+  repeated Event events = 1;
+  string next_page_token = 2;
+}
+
+// AuditService reads the append-only audit log.
+service AuditService {
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}

@@ -18,6 +18,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/marijnkoesen/protodex/internal/audit"
 	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/blob/fsblob"
 	"github.com/marijnkoesen/protodex/internal/config"
@@ -88,6 +89,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				// SQLite mode is single-process, so GC runs in-process.
 				server.WithGC(server.GCConfig{Interval: time.Duration(cfg.GCInterval),
 					Grace: time.Duration(cfg.GCGracePeriod), DryRun: cfg.GCDryRun}))
+			opts = append(opts, server.WithWebhooks(server.WebhookConfig{Interval: time.Duration(cfg.WebhookInterval),
+				Timeout: time.Duration(cfg.WebhookTimeout), MaxAttempts: cfg.WebhookMaxAttempts}))
 			if cfg.OIDC.Enabled() {
 				opts = append(opts, server.WithOIDC(oidcauth.New(cfg.OIDC, st, cfg.Logger(stderr))))
 			}
@@ -347,7 +350,11 @@ func ownerCmd(ctx context.Context, args []string, getenv func(string) string, st
 			return errors.New("owner role: want USER and ROLE (viewer, member or admin)")
 		}
 		run = func(st store.Store) error {
-			o, err := owner.SetRole(ctx, st, rest[0], rest[1])
+			var o store.Owner
+			err := st.WithTx(ctx, func(q store.Querier) (err error) {
+				o, err = owner.SetRole(ctx, q, rest[0], rest[1])
+				return err
+			})
 			if err != nil {
 				return err
 			}
@@ -407,11 +414,20 @@ func createOwners(ctx context.Context, st store.Store, kind owner.Kind, role str
 				if err := q.SetOwnerRole(ctx, o.ID, role); err != nil {
 					return err
 				}
+				if _, err := audit.Record(ctx, q, audit.Event{Type: audit.UserRoleChanged, Subject: o.Name,
+					Data: map[string]any{"user_id": o.ID, "from": o.Role, "to": role}}); err != nil {
+					return err
+				}
 			}
 			if secrets[i], err = auth.GenerateSecret(); err != nil {
 				return err
 			}
-			if _, err := q.CreateToken(ctx, store.Token{OwnerID: o.ID, Name: "initial", Hash: auth.HashSecret(secrets[i])}); err != nil {
+			tok, err := q.CreateToken(ctx, store.Token{OwnerID: o.ID, Name: "initial", Hash: auth.HashSecret(secrets[i])})
+			if err != nil {
+				return err
+			}
+			if _, err := audit.Record(ctx, q, audit.Event{Type: audit.TokenCreated, Subject: o.Name,
+				Data: map[string]any{"token_id": tok.ID, "token_name": tok.Name, "source": "cli"}}); err != nil {
 				return err
 			}
 		}
@@ -489,13 +505,17 @@ func contributorCmd(ctx context.Context, args []string, getenv func(string) stri
 	return withDB(ctx, "contributor "+action, *dbPath, func(st store.Store) error {
 		switch action {
 		case "add":
-			if err := module.Grant(ctx, st, ownerName, moduleName, rest[1], rest[2]); err != nil {
+			if err := st.WithTx(ctx, func(q store.Querier) error {
+				return module.Grant(ctx, q, ownerName, moduleName, rest[1], rest[2])
+			}); err != nil {
 				return err
 			}
 			_, err := fmt.Fprintf(stdout, "granted %s on %s to %q\n", rest[2], rest[0], rest[1])
 			return err
 		case "remove":
-			if err := module.Revoke(ctx, st, ownerName, moduleName, rest[1]); err != nil {
+			if err := st.WithTx(ctx, func(q store.Querier) error {
+				return module.Revoke(ctx, q, ownerName, moduleName, rest[1])
+			}); err != nil {
 				return err
 			}
 			_, err := fmt.Fprintf(stdout, "revoked %q on %s\n", rest[1], rest[0])

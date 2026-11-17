@@ -48,6 +48,14 @@ type Config struct {
 	// GCDryRun logs and counts what garbage collection would delete without
 	// deleting anything.
 	GCDryRun bool `json:"gc_dry_run"`
+	// WebhookInterval is how often the worker polls for due webhook
+	// deliveries (only with db_path). "0s" disables delivery; events are
+	// still recorded and queued. Default 5s.
+	WebhookInterval Duration `json:"webhook_interval"`
+	// WebhookTimeout bounds one delivery attempt (default 10s) and
+	// WebhookMaxAttempts the attempts before a delivery is given up (default 8).
+	WebhookTimeout     Duration `json:"webhook_timeout"`
+	WebhookMaxAttempts int      `json:"webhook_max_attempts"`
 	// ShutdownTimeout bounds graceful shutdown.
 	ShutdownTimeout Duration `json:"shutdown_timeout"`
 	// TracingEnabled turns on OpenTelemetry tracing with an OTLP/HTTP exporter.
@@ -167,13 +175,16 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 // Default returns the default configuration.
 func Default() Config {
 	return Config{
-		Addr:            ":8080",
-		LogLevel:        "info",
-		LogFormat:       "text",
-		MaxRequestBytes: 64 << 20,
-		ShutdownTimeout: Duration(30 * time.Second),
-		GCInterval:      Duration(time.Hour),
-		GCGracePeriod:   Duration(24 * time.Hour),
+		Addr:               ":8080",
+		LogLevel:           "info",
+		LogFormat:          "text",
+		MaxRequestBytes:    64 << 20,
+		ShutdownTimeout:    Duration(30 * time.Second),
+		GCInterval:         Duration(time.Hour),
+		WebhookInterval:    Duration(5 * time.Second),
+		WebhookTimeout:     Duration(10 * time.Second),
+		WebhookMaxAttempts: 8,
+		GCGracePeriod:      Duration(24 * time.Hour),
 		OIDC: OIDC{
 			Scopes:      []string{"profile", "email", "groups"},
 			GroupsClaim: "groups",
@@ -285,7 +296,7 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	for _, e := range []struct {
 		name string
 		dst  *Duration
-	}{{"PROTODEX_GC_INTERVAL", &cfg.GCInterval}, {"PROTODEX_GC_GRACE_PERIOD", &cfg.GCGracePeriod}} {
+	}{{"PROTODEX_GC_INTERVAL", &cfg.GCInterval}, {"PROTODEX_WEBHOOK_INTERVAL", &cfg.WebhookInterval}, {"PROTODEX_WEBHOOK_TIMEOUT", &cfg.WebhookTimeout}, {"PROTODEX_GC_GRACE_PERIOD", &cfg.GCGracePeriod}} {
 		if v := getenv(e.name); v != "" {
 			d, err := time.ParseDuration(v)
 			if err != nil {
@@ -343,6 +354,9 @@ func (c Config) Validate() error {
 	}
 	if c.GCInterval < 0 {
 		errs = append(errs, errors.New("gc_interval must not be negative (0s disables garbage collection)"))
+	}
+	if c.WebhookInterval < 0 || c.WebhookTimeout <= 0 || c.WebhookMaxAttempts <= 0 {
+		errs = append(errs, errors.New("webhook_interval must not be negative (0s disables delivery); webhook_timeout and webhook_max_attempts must be positive"))
 	}
 	if c.GCGracePeriod <= 0 {
 		errs = append(errs, errors.New("gc_grace_period must be positive"))

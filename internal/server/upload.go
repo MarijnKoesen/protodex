@@ -14,6 +14,7 @@ import (
 
 	modulev1 "github.com/marijnkoesen/protodex/gen/buf/registry/module/v1"
 	"github.com/marijnkoesen/protodex/gen/buf/registry/module/v1/modulev1connect"
+	"github.com/marijnkoesen/protodex/internal/audit"
 	"github.com/marijnkoesen/protodex/internal/b5"
 	"github.com/marijnkoesen/protodex/internal/blob"
 	"github.com/marijnkoesen/protodex/internal/gc"
@@ -302,6 +303,10 @@ func (s *uploadService) commit(ctx context.Context, q store.Querier, it *pushIte
 		if err := q.AddCommitDeps(ctx, deps); err != nil {
 			return store.Commit{}, internalErr(err)
 		}
+		if err := record(ctx, q, audit.PushCreated, it.owner.Name+"/"+it.mod.Name, map[string]any{
+			"module_id": it.mod.ID, "commit_id": c.ID, "digest": c.Digest, "files": len(it.files)}); err != nil {
+			return store.Commit{}, err
+		}
 	}
 	return c, s.moveLabels(ctx, q, it, c, userID)
 }
@@ -339,6 +344,10 @@ func (s *uploadService) moveLabels(ctx context.Context, q store.Querier, it *pus
 		}
 		if _, err := q.SetLabel(ctx, store.Label{ID: cur.ID, ModuleID: it.mod.ID, Name: name, CommitID: c.ID, UpdatedBy: userID}); err != nil {
 			return internalErr(err)
+		}
+		if err := record(ctx, q, audit.LabelUpdated, it.owner.Name+"/"+it.mod.Name+":"+name, map[string]any{
+			"module_id": it.mod.ID, "label": name, "commit_id": c.ID}); err != nil {
+			return err
 		}
 	}
 	return nil

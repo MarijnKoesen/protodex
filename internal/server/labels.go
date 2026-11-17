@@ -15,6 +15,7 @@ import (
 
 	modulev1 "github.com/marijnkoesen/protodex/gen/buf/registry/module/v1"
 	"github.com/marijnkoesen/protodex/gen/buf/registry/module/v1/modulev1connect"
+	"github.com/marijnkoesen/protodex/internal/audit"
 	"github.com/marijnkoesen/protodex/internal/module"
 	"github.com/marijnkoesen/protodex/internal/store"
 )
@@ -321,6 +322,10 @@ func (s *labelService) CreateOrUpdateLabels(ctx context.Context, req *connect.Re
 				if err != nil {
 					return internalErr(err)
 				}
+				if err := record(ctx, q, audit.LabelUpdated, l.owner.Name+"/"+l.mod.Name+":"+l.label.Name, map[string]any{
+					"module_id": l.mod.ID, "label": l.label.Name, "commit_id": c.ID}); err != nil {
+					return err
+				}
 			}
 			p, err := labelProto(ctx, q, l)
 			if err != nil {
@@ -359,6 +364,14 @@ func (s *labelService) setArchived(ctx context.Context, refs []*modulev1.LabelRe
 			}
 			if err := q.ArchiveLabel(ctx, l.mod.ID, l.label.Name, archived); err != nil {
 				return internalErr(err)
+			}
+			typ := audit.LabelUnarchived
+			if archived {
+				typ = audit.LabelArchived
+			}
+			if err := record(ctx, q, typ, l.owner.Name+"/"+l.mod.Name+":"+l.label.Name, map[string]any{
+				"module_id": l.mod.ID, "label": l.label.Name}); err != nil {
+				return err
 			}
 		}
 		return nil

@@ -8,6 +8,16 @@ import (
 	"database/sql"
 )
 
+type AuditEvent struct {
+	ID        string
+	Type      string
+	ActorID   string
+	ActorName string
+	Subject   string
+	Data      string
+	CreatedAt int64
+}
+
 type Blob struct {
 	Digest string
 	Size   int64
@@ -97,4 +107,28 @@ type Token struct {
 	CreatedAt  int64
 	ExpiresAt  sql.NullInt64
 	LastUsedAt sql.NullInt64
+}
+
+type Webhook struct {
+	ID          string
+	Url         string
+	Secret      string
+	Description string
+	EventTypes  string
+	Active      int64
+	CreatedAt   int64
+	UpdatedAt   int64
+}
+
+type WebhookDelivery struct {
+	ID            string
+	WebhookID     string
+	EventID       string
+	Status        string
+	Attempts      int64
+	NextAttemptAt int64
+	LastStatus    int64
+	LastError     string
+	CreatedAt     int64
+	UpdatedAt     int64
 }

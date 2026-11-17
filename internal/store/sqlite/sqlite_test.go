@@ -62,6 +62,15 @@ func hasIndex(t *testing.T, s *Store, name string) bool {
 	return n == 1
 }
 
+func tableExists(t *testing.T, s *Store, name string) int {
+	t.Helper()
+	var n int
+	if err := s.reader.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, name).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
 func TestMigrateUpDownIdempotent(t *testing.T) {
 	ctx := context.Background()
 	s := open(t, filepath.Join(t.TempDir(), "p.db"))
@@ -85,6 +94,15 @@ func TestMigrateUpDownIdempotent(t *testing.T) {
 	}
 	if !hasColumn(t, s, "owners", "role") || !hasColumn(t, s, "module_contributors", "role") {
 		t.Fatal("00007 columns missing after up")
+	}
+	if tableExists(t, s, "webhooks") == 0 {
+		t.Fatal("00008 tables missing after up")
+	}
+	if err := s.Rollback(ctx); err != nil { // 00008: audit log and webhooks
+		t.Fatal(err)
+	}
+	if tableExists(t, s, "webhooks") != 0 || tableExists(t, s, "audit_events") != 0 {
+		t.Fatal("00008 not rolled back cleanly")
 	}
 	if err := s.Rollback(ctx); err != nil { // 00007: roles and contributors
 		t.Fatal(err)

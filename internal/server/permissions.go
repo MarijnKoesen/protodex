@@ -12,6 +12,8 @@ import (
 	"github.com/marijnkoesen/protodex/gen/buf/registry/iam/v1/iamv1connect"
 	"github.com/marijnkoesen/protodex/gen/buf/registry/module/v1/modulev1connect"
 	"github.com/marijnkoesen/protodex/gen/buf/registry/owner/v1/ownerv1connect"
+	"github.com/marijnkoesen/protodex/gen/protodex/audit/v1/auditv1connect"
+	"github.com/marijnkoesen/protodex/gen/protodex/webhook/v1/webhookv1connect"
 	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/store"
 )
@@ -224,6 +226,12 @@ var procedurePolicy = map[string]procedureAccess{
 	iamv1connect.TokenServiceCreateTokensProcedure:                        accessAuthenticated,
 	iamv1connect.TokenServiceUpdateTokensProcedure:                        accessAuthenticated,
 	iamv1connect.TokenServiceDeleteTokensProcedure:                        accessAuthenticated,
+	webhookv1connect.WebhookServiceCreateWebhookProcedure:                 accessAdmin,
+	webhookv1connect.WebhookServiceListWebhooksProcedure:                  accessAdmin,
+	webhookv1connect.WebhookServiceUpdateWebhookProcedure:                 accessAdmin,
+	webhookv1connect.WebhookServiceDeleteWebhookProcedure:                 accessAdmin,
+	webhookv1connect.WebhookServiceListDeliveriesProcedure:                accessAdmin,
+	auditv1connect.AuditServiceListEventsProcedure:                        accessAdmin,
 	authnAlphaGetCurrentUser:                                              accessAuthenticated,
 }
 

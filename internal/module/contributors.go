@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/marijnkoesen/protodex/internal/audit"
 	"github.com/marijnkoesen/protodex/internal/store"
 )
 
@@ -66,7 +67,11 @@ func Grant(ctx context.Context, q store.Querier, ownerName, moduleName, userName
 	if err != nil {
 		return err
 	}
-	_, err = q.SetModuleContributor(ctx, store.ModuleContributor{ModuleID: m.ID, UserID: u.ID, Role: role})
+	if _, err = q.SetModuleContributor(ctx, store.ModuleContributor{ModuleID: m.ID, UserID: u.ID, Role: role}); err != nil {
+		return err
+	}
+	_, err = audit.Record(ctx, q, audit.Event{Type: audit.ContributorGranted, Subject: ownerName + "/" + moduleName,
+		Data: map[string]any{"module_id": m.ID, "user": u.Name, "user_id": u.ID, "role": role}})
 	return err
 }
 
@@ -84,6 +89,11 @@ func Revoke(ctx context.Context, q store.Querier, ownerName, moduleName, userNam
 	if errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("user %q is not a contributor of %s/%s: %w", userName, ownerName, moduleName, err)
 	}
+	if err != nil {
+		return err
+	}
+	_, err = audit.Record(ctx, q, audit.Event{Type: audit.ContributorRevoked, Subject: ownerName + "/" + moduleName,
+		Data: map[string]any{"module_id": m.ID, "user": u.Name, "user_id": u.ID}})
 	return err
 }
 

@@ -36,6 +36,7 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 		"LabelIdentity":         testLabelIdentity,
 		"BlobGC":                testBlobGC,
 		"RolesAndContributors":  testRolesAndContributors,
+		"AuditAndWebhooks":      testAuditAndWebhooks,
 	}
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -668,5 +669,67 @@ func testRolesAndContributors(t *testing.T, s store.Store) {
 	}
 	if cs := must(s.ListUserContributions(ctx, a.ID)); len(cs) != 0 {
 		t.Fatalf("grants after module delete = %+v", cs)
+	}
+}
+
+func testAuditAndWebhooks(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	var ids []string
+	for _, typ := range []string{"a.one", "a.two", "b.one"} {
+		e := must(s.CreateAuditEvent(ctx, store.AuditEvent{Type: typ, Subject: "x", Data: `{"k":1}`}))
+		ids = append(ids, e.ID)
+	}
+	if ids[0] >= ids[1] || ids[1] >= ids[2] {
+		t.Fatalf("event ids are not ordered: %v", ids)
+	}
+	if got := must(s.ListAuditEvents(ctx, "", "", 10)); len(got) != 3 || got[0].ID != ids[0] || got[0].Data != `{"k":1}` {
+		t.Fatalf("ListAuditEvents = %+v", got)
+	}
+	if got := must(s.ListAuditEvents(ctx, ids[0], "", 1)); len(got) != 1 || got[0].ID != ids[1] {
+		t.Fatalf("paged = %+v", got)
+	}
+	if got := must(s.ListAuditEvents(ctx, "", "b.one", 10)); len(got) != 1 || got[0].ID != ids[2] {
+		t.Fatalf("filtered = %+v", got)
+	}
+	_, err := s.GetAuditEvent(ctx, "nope")
+	is(t, err, store.ErrNotFound)
+
+	w := must(s.CreateWebhook(ctx, store.Webhook{URL: "https://example.com/h", Secret: "s", EventTypes: []string{"a.*", "b.one"}, Active: true}))
+	if g := must(s.GetWebhook(ctx, w.ID)); g.URL != w.URL || len(g.EventTypes) != 2 || !g.Active || g.Secret != "s" {
+		t.Fatalf("webhook = %+v", g)
+	}
+	w.URL, w.Active, w.EventTypes = "https://example.com/other", false, nil
+	if u := must(s.UpdateWebhook(ctx, w)); u.URL != w.URL || u.Active || len(u.EventTypes) != 0 {
+		t.Fatalf("updated = %+v", u)
+	}
+	_, err = s.UpdateWebhook(ctx, store.Webhook{ID: "nope"})
+	is(t, err, store.ErrNotFound)
+
+	now := time.Now()
+	d1 := must(s.CreateDelivery(ctx, store.Delivery{WebhookID: w.ID, EventID: ids[0], NextAttemptAt: now.Add(-time.Minute)}))
+	must(s.CreateDelivery(ctx, store.Delivery{WebhookID: w.ID, EventID: ids[1], NextAttemptAt: now.Add(time.Hour)}))
+	_, err = s.CreateDelivery(ctx, store.Delivery{WebhookID: "nope", EventID: ids[1]})
+	is(t, err, store.ErrConflict)
+	if due := must(s.ListDueDeliveries(ctx, now, 10)); len(due) != 1 || due[0].ID != d1.ID || due[0].Status != store.DeliveryPending {
+		t.Fatalf("due = %+v", due)
+	}
+	d1.Status, d1.Attempts, d1.LastStatus, d1.LastError = store.DeliveryDelivered, 1, 204, ""
+	if err := s.UpdateDelivery(ctx, d1); err != nil {
+		t.Fatal(err)
+	}
+	if due := must(s.ListDueDeliveries(ctx, now, 10)); len(due) != 0 {
+		t.Fatalf("delivered still due: %+v", due)
+	}
+	if all := must(s.ListDeliveries(ctx, w.ID, "", 10)); len(all) != 2 || all[0].Status != store.DeliveryDelivered || all[0].LastStatus != 204 {
+		t.Fatalf("deliveries = %+v", all)
+	}
+	is(t, s.UpdateDelivery(ctx, store.Delivery{ID: "nope"}), store.ErrNotFound)
+
+	if err := s.DeleteWebhook(ctx, w.ID); err != nil {
+		t.Fatal(err)
+	}
+	is(t, s.DeleteWebhook(ctx, w.ID), store.ErrNotFound)
+	if all := must(s.ListDeliveries(ctx, w.ID, "", 10)); len(all) != 0 {
+		t.Fatalf("deliveries survive webhook deletion: %+v", all)
 	}
 }
