@@ -68,6 +68,21 @@ vuln: ## Scan for known vulnerabilities
 docker: ## Build the container image (no push)
 	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE) .
 
+VERSIONS ?= $(shell cat test/capture/versions.txt)
+
+.PHONY: capture
+capture: ## Record buf CLI traffic per CLI version (needs docker + network)
+	@for v in $(VERSIONS); do \
+	  docker build -q -f test/capture/Dockerfile --build-arg BUF_VERSION=$$v -t protodex-capture:$$v . && \
+	  mkdir -p test/capture/out && \
+	  docker run --rm -e BUF_TOKEN -e PUSH_MODULE -v "$$PWD/test/capture/out:/out" protodex-capture:$$v || exit 1; \
+	done
+	$(MAKE) capture-matrix
+
+.PHONY: capture-matrix
+capture-matrix: ## Regenerate docs/behavior-spec/rpc-matrix.md from recordings
+	@{ cat docs/behavior-spec/rpc-matrix.header.md; $(GO) run ./test/capture/cmd/capture matrix -dir test/capture/out; } > docs/behavior-spec/rpc-matrix.md
+
 .PHONY: tools
 tools: ## Install golangci-lint at the pinned version
 	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
