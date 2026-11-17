@@ -227,8 +227,9 @@ func (s *uploadService) Upload(ctx context.Context, req *connect.Request[modulev
 		if files[i], err = s.validateFiles(c.GetFiles()); err != nil {
 			return nil, err
 		}
-		for _, f := range files[i] {
-			total += int64(len(f.Content))
+		// Count every submitted file, including those b5.Filter drops.
+		for _, f := range c.GetFiles() {
+			total += int64(len(f.GetContent()))
 		}
 		if total > s.limits.MaxTotalBytes {
 			return nil, connect.NewError(connect.CodeInvalidArgument,
