@@ -9,3 +9,9 @@ affiliated with, endorsed by, or sponsored by Buf Technologies, Inc.
 describe compatibility.
 
 Third-party components and their licenses are listed below as they are added.
+
+- bufbuild/registry-proto (Apache-2.0), vendored under proto/buf/registry at
+  commit b3fdcc9c36fd4b8d8fea6336c62282587af4e631. The license is kept at
+  proto/LICENSE.registry-proto. Files are unmodified copies; only the subset
+  needed for the MVP services (module/v1, owner/v1, iam/v1 token, and their
+  imports) is included.

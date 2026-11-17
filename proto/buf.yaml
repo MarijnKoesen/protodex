@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+version: v2
+deps:
+  - buf.build/bufbuild/protovalidate:50325440f8f24053b047484a6bf60b76
+lint:
+  use:
+    - STANDARD
+  # Vendored upstream protos (proto/buf/registry) are not linted.
+  ignore:
+    - buf
+breaking:
+  use:
+    - WIRE_JSON

@@ -1,0 +1,248 @@
+// Copyright 2023-2026 Buf Technologies, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package buf.registry.owner.v1;
+
+import "buf/registry/owner/v1/organization.proto";
+import "buf/registry/owner/v1/user.proto";
+import "buf/registry/priv/extension/v1beta1/extension.proto";
+import "buf/registry/priv/validate/v1beta1/validate.proto";
+import "buf/validate/validate.proto";
+
+option go_package = "buf.build/gen/go/bufbuild/registry/protocolbuffers/go/buf/registry/owner/v1";
+
+// Operate on Users.
+service UserService {
+  // Get Users by id or name.
+  rpc GetUsers(GetUsersRequest) returns (GetUsersResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    // Users are public on an instance: reading them requires no Permission.
+    option (buf.registry.priv.extension.v1beta1.method).no_required_permission = true;
+  }
+  // Get the currently authenticated User.
+  rpc GetCurrentUser(GetCurrentUserRequest) returns (GetCurrentUserResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (buf.registry.priv.extension.v1beta1.method).no_required_permission = true;
+  }
+  // List Users, usually by Organization.
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    // bsr.user.list is required if no organization_refs are provided.
+    // bsr.organization-membership.list is required on each Organization in organization_refs.
+    option (buf.registry.priv.extension.v1beta1.method).dynamic_permission = true;
+  }
+  // Create new Users.
+  //
+  // This operation is atomic. Either all Users are created or an error is returned.
+  rpc CreateUsers(CreateUsersRequest) returns (CreateUsersResponse) {
+    option idempotency_level = IDEMPOTENT;
+    option (buf.registry.priv.extension.v1beta1.method).required_permission = "bsr.user.create";
+  }
+  // Update existing Users.
+  //
+  // This operation is atomic. Either all Users are updated or an error is returned.
+  rpc UpdateUsers(UpdateUsersRequest) returns (UpdateUsersResponse) {
+    option idempotency_level = IDEMPOTENT;
+    option (buf.registry.priv.extension.v1beta1.method).required_permission = "bsr.user.update";
+  }
+  // Delete existing Users.
+  //
+  // This operation is atomic. Either all Users are deleted or an error is returned.
+  // Duplicate UserRefs are allowed, and only one User will be deleted. Likewise,
+  // duplicate UserRefs belonging to the same User, by id or name, are allowed, and
+  // only one User will be deleted.
+  rpc DeleteUsers(DeleteUsersRequest) returns (DeleteUsersResponse) {
+    option idempotency_level = IDEMPOTENT;
+    option (buf.registry.priv.extension.v1beta1.method).required_permission = "bsr.user.delete";
+  }
+}
+
+message GetUsersRequest {
+  // The Users to request.
+  repeated UserRef user_refs = 1 [
+    (buf.validate.field).repeated.min_items = 1,
+    (buf.validate.field).repeated.max_items = 250
+  ];
+}
+
+message GetUsersResponse {
+  // The retrieved Users in the same order as requested.
+  repeated User users = 1 [(buf.validate.field).repeated.min_items = 1];
+}
+
+message GetCurrentUserRequest {}
+
+message GetCurrentUserResponse {
+  // The currently authenticated User.
+  User user = 1 [(buf.validate.field).required = true];
+}
+
+message ListUsersRequest {
+  // The list order.
+  enum Order {
+    ORDER_UNSPECIFIED = 0;
+    // Order by create_time newest to oldest.
+    ORDER_CREATE_TIME_DESC = 1;
+    // Order by create_time oldest to newest.
+    ORDER_CREATE_TIME_ASC = 2;
+    // Order by name in reverse lexicographic order.
+    ORDER_NAME_DESC = 3;
+    // Order by name in lexicographic order.
+    ORDER_NAME_ASC = 4;
+  }
+  // The maximum number of items to return.
+  //
+  // The default value is 10.
+  uint32 page_size = 1 [(buf.validate.field).uint32.lte = 250];
+  // The page to start from.
+  //
+  // If empty, the first page is returned.
+  string page_token = 2 [(buf.validate.field).string.max_len = 4096];
+  // The specific Organizations to list Users for.
+  //
+  // If this is empty, all Users for all Organizations are listed, but this functionality
+  // is limited to Users with the necessary permissions.
+  repeated OrganizationRef organization_refs = 3;
+  // The order to return the Users.
+  //
+  // If not specified, defaults to ORDER_CREATE_TIME_DESC.
+  Order order = 4 [(buf.validate.field).enum.defined_only = true];
+  // Only return Users of these types.
+  repeated UserType has_types = 5 [
+    (buf.validate.field).repeated.unique = true,
+    (buf.validate.field).repeated.items.enum.defined_only = true,
+    (buf.validate.field).repeated.items.enum.not_in = 0
+  ];
+  // Only return Users of these states.
+  repeated UserState has_states = 6 [
+    (buf.validate.field).repeated.unique = true,
+    (buf.validate.field).repeated.items.enum.defined_only = true,
+    (buf.validate.field).repeated.items.enum.not_in = 0
+  ];
+  // Only return Users with a name that contains this string using a case-insensitive comparison.
+  string name_query = 7 [(buf.validate.field).string.max_len = 32];
+  // Only return Users whose instance role matches one of these roles.
+  //
+  // Maps to the individual instance role assignment of the user and does not map to effective role permissions.
+  repeated UserInstanceRole has_roles = 8 [
+    (buf.validate.field).repeated.unique = true,
+    (buf.validate.field).repeated.items.enum.defined_only = true,
+    (buf.validate.field).repeated.items.enum.not_in = 0
+  ];
+}
+
+message ListUsersResponse {
+  // The next page token.
+  //
+  // If empty, there are no more pages.
+  string next_page_token = 1 [(buf.validate.field).string.max_len = 4096];
+  // The list of Users.
+  repeated User users = 2;
+}
+
+message CreateUsersRequest {
+  // An individual request to create a User.
+  message Value {
+    // The name of the User.
+    string name = 1 [
+      (buf.validate.field).required = true,
+      (buf.validate.field).string.min_len = 1,
+      (buf.validate.field).string.max_len = 32,
+      (buf.validate.field).string.pattern = "^[a-z]([a-z0-9-]*[a-z0-9])?$"
+    ];
+    // The type of the User.
+    //
+    // If not set, the default USER_TYPE_STANDARD is used.
+    //
+    // Only instance admins can create USER_TYPE_BOT Users. USER_TYPE_SYSTEM
+    // Users cannot be created through the API.
+    UserType type = 2 [(buf.validate.field).enum.defined_only = true];
+    // The configurable description of the User.
+    string description = 3 [(buf.validate.field).string.max_len = 350];
+    // The configurable URL that represents the homepage for a User.
+    //
+    // Must be an http or https URL.
+    string url = 4 [
+      (buf.validate.field).string.(buf.registry.priv.validate.v1beta1.http_url) = true,
+      (buf.validate.field).string.max_len = 255
+    ];
+    // The verification status of the User.
+    //
+    // If not set, the User will default to VERIFICATION_STATUS_UNVERIFIED.
+    //
+    // Only instance admins can set USER_VERIFICATION_STATUS_VERIFIED or
+    // USER_VERIFICATION_STATUS_OFFICIAL.
+    UserVerificationStatus verification_status = 5 [(buf.validate.field).enum.defined_only = true];
+  }
+  // The Users to create.
+  repeated Value values = 1 [
+    (buf.validate.field).repeated.min_items = 1,
+    (buf.validate.field).repeated.max_items = 250
+  ];
+}
+
+message CreateUsersResponse {
+  // The created Users in the same order as given on the request.
+  repeated User users = 1 [(buf.validate.field).repeated.min_items = 1];
+}
+
+message UpdateUsersRequest {
+  // An individual request to update a User.
+  message Value {
+    // The User to update.
+    UserRef user_ref = 1 [(buf.validate.field).required = true];
+    // The state of the User.
+    //
+    // Only instance admins can change a User's state.
+    optional UserState state = 2 [
+      (buf.validate.field).enum.defined_only = true,
+      (buf.validate.field).enum.not_in = 0
+    ];
+    // The configurable description of the User.
+    optional string description = 3 [(buf.validate.field).string.max_len = 350];
+    // The configurable URL that represents the homepage for a User.
+    //
+    // Must be an http or https URL.
+    optional string url = 4 [
+      (buf.validate.field).string.max_len = 255,
+      (buf.validate.field).string.(buf.registry.priv.validate.v1beta1.http_url) = true
+    ];
+    // The verification status of the User.
+    //
+    // Only instance admins can set the verification status.
+    optional UserVerificationStatus verification_status = 5 [(buf.validate.field).enum.defined_only = true];
+  }
+  // The Users to update.
+  repeated Value values = 1 [
+    (buf.validate.field).repeated.min_items = 1,
+    (buf.validate.field).repeated.max_items = 250
+  ];
+}
+
+message UpdateUsersResponse {
+  // The updated Users in the same order as given on the request.
+  repeated User users = 1 [(buf.validate.field).repeated.min_items = 1];
+}
+
+message DeleteUsersRequest {
+  // The Users to delete.
+  repeated UserRef user_refs = 1 [
+    (buf.validate.field).repeated.min_items = 1,
+    (buf.validate.field).repeated.max_items = 250
+  ];
+}
+
+message DeleteUsersResponse {}

@@ -12,6 +12,12 @@ IMAGE         ?= ghcr.io/marijnkoesen/protodex:dev
 GOLANGCI_LINT_VERSION ?= v2.15.0
 GOVULNCHECK_VERSION   ?= v1.9.0
 GO_LICENSES_VERSION   ?= v2.0.1
+BUF_VERSION           ?= v1.57.0
+PROTOC_GEN_GO_VERSION ?= v1.36.12
+PROTOC_GEN_CONNECT_GO_VERSION ?= v1.21.1
+
+# buf and the protoc plugins are built into $(TOOLS_DIR) at the pinned versions.
+TOOLS_DIR ?= $(CURDIR)/bin/tools
 
 # The race detector needs cgo + a C compiler; CI always has one.
 RACE ?= $(shell CC=$$($(GO) env CC); command -v $$CC >/dev/null 2>&1 && echo -race)
@@ -41,10 +47,17 @@ build: ## Compile all packages and the protodex binary
 	$(GO) build ./...
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/protodex ./cmd/protodex
 
+.PHONY: generate-tools
+generate-tools:
+	GOBIN=$(TOOLS_DIR) $(GO) install github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
+	GOBIN=$(TOOLS_DIR) $(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+	GOBIN=$(TOOLS_DIR) $(GO) install connectrpc.com/connect/cmd/protoc-gen-connect-go@$(PROTOC_GEN_CONNECT_GO_VERSION)
+
 .PHONY: generate
-generate: ## Regenerate code (go generate; buf generate once protos exist)
+generate: generate-tools ## Regenerate code (go generate + buf generate into gen/)
 	$(GO) generate ./...
-	@if [ -f buf.gen.yaml ]; then buf generate; fi
+	rm -rf gen
+	PATH="$(TOOLS_DIR):$$PATH" buf generate proto
 
 .PHONY: check-generated
 check-generated: ## Fail if go mod tidy / generate leave a diff

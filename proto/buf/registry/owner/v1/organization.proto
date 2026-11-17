@@ -1,0 +1,175 @@
+// Copyright 2023-2026 Buf Technologies, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package buf.registry.owner.v1;
+
+import "buf/registry/priv/extension/v1beta1/extension.proto";
+import "buf/registry/resource/v1/resource_visibility_control.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "buf.build/gen/go/bufbuild/registry/protocolbuffers/go/buf/registry/owner/v1";
+
+// Organization is an organization on the BSR.
+//
+// A name uniquely identifies an Organization, however name is mutable.
+message Organization {
+  option (buf.registry.priv.extension.v1beta1.message).response_only = true;
+
+  // The id for the Organization.
+  string id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.tuuid = true
+  ];
+  // The time the Organization was created.
+  google.protobuf.Timestamp create_time = 2 [(buf.validate.field).required = true];
+  // The last time the Organization was updated.
+  google.protobuf.Timestamp update_time = 3 [(buf.validate.field).required = true];
+  // The name of the Organization.
+  //
+  // A name uniquely identifies an Organization, however name is mutable.
+  string name = 4 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.max_len = 48,
+    (buf.validate.field).string.pattern = "^[a-z]([a-z0-9-]*[a-z0-9])?$"
+  ];
+  // The configurable description of the Organization.
+  string description = 5 [(buf.validate.field).string.max_len = 350];
+  // The configurable URL that represents the homepage for an Organization.
+  string url = 6 [
+    (buf.validate.field).string.uri = true,
+    (buf.validate.field).string.max_len = 255,
+    (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE
+  ];
+  // The verification status of the Organization.
+  OrganizationVerificationStatus verification_status = 7 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).enum.defined_only = true
+  ];
+  OrganizationVisibility visibility = 8 [(buf.validate.field).enum.defined_only = true];
+}
+
+// The verification status of an Organization.
+enum OrganizationVerificationStatus {
+  ORGANIZATION_VERIFICATION_STATUS_UNSPECIFIED = 0;
+  // The Organization is unverified.
+  ORGANIZATION_VERIFICATION_STATUS_UNVERIFIED = 1;
+  // The Organization is verified.
+  ORGANIZATION_VERIFICATION_STATUS_VERIFIED = 2;
+  // The Organization is an official organization of the BSR owner.
+  ORGANIZATION_VERIFICATION_STATUS_OFFICIAL = 3;
+}
+
+// The visibility of an Organization, currently either public or private.
+enum OrganizationVisibility {
+  ORGANIZATION_VISIBILITY_UNSPECIFIED = 0;
+  // ORGANIZATION_VISIBILITY_PUBLIC says that the organization is publicly available.
+  ORGANIZATION_VISIBILITY_PUBLIC = 1;
+  // ORGANIZATION_VISIBILITY_PRIVATE says that the organization is private.
+  ORGANIZATION_VISIBILITY_PRIVATE = 2;
+}
+
+// The settings of an Organization.
+//
+// Settings control behavior that applies to the Organization's members and the resources the
+// Organization owns, as opposed to the Organization's profile, which is part of the Organization
+// itself.
+message OrganizationSettings {
+  option (buf.registry.priv.extension.v1beta1.message).response_only = true;
+
+  // The id of the Organization that the settings apply to.
+  string organization_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.tuuid = true
+  ];
+  // The base role that members of the Organization receive on the Modules the Organization owns.
+  BaseResourceRole base_module_role = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).enum.defined_only = true,
+    (buf.validate.field).enum.not_in = 0
+  ];
+  // The base role that members of the Organization receive on the Plugins the Organization owns.
+  BaseResourceRole base_plugin_role = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).enum.defined_only = true,
+    (buf.validate.field).enum.not_in = 0
+  ];
+  // The base role that members of the Organization receive on the Policies the Organization owns.
+  BaseResourceRole base_policy_role = 4 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).enum.defined_only = true,
+    (buf.validate.field).enum.not_in = 0
+  ];
+  // The Organization's visibility control for the Modules it owns.
+  //
+  // This control is ignored when a strict instance-level control is set. If unset, new Modules
+  // fall through to the instance-level control, and default to private if no control applies at
+  // any level.
+  buf.registry.resource.v1.ResourceVisibilityControl module_visibility_control = 5;
+  // The Organization's visibility control for the Plugins it owns.
+  //
+  // This control is ignored when a strict instance-level control is set. If unset, new Plugins
+  // fall through to the instance-level control, and default to private if no control applies at
+  // any level.
+  buf.registry.resource.v1.ResourceVisibilityControl plugin_visibility_control = 6;
+  // The Organization's visibility control for the Policies it owns.
+  //
+  // This control is ignored when a strict instance-level control is set. If unset, new Policies
+  // fall through to the instance-level control, and default to private if no control applies at
+  // any level.
+  buf.registry.resource.v1.ResourceVisibilityControl policy_visibility_control = 7;
+}
+
+// A base role that members of an Organization receive on the resources the Organization owns.
+//
+// Base roles apply to members with the member role. Members with the admin or owner role receive
+// at least admin access to owned resources, and bot users always receive write access,
+// regardless of base roles.
+//
+// An owner base role is intentionally not representable: it would allow Organization admins to
+// escalate themselves to resource owners.
+enum BaseResourceRole {
+  BASE_RESOURCE_ROLE_UNSPECIFIED = 0;
+  // Members can administer the resource.
+  BASE_RESOURCE_ROLE_ADMIN = 1;
+  // Members can write to the resource.
+  BASE_RESOURCE_ROLE_WRITE = 2;
+  // Members can write only non-default content of the resource, for example pushing to a
+  // non-default Label of a Module.
+  BASE_RESOURCE_ROLE_LIMITED_WRITE = 3;
+  // Members can read the resource.
+  BASE_RESOURCE_ROLE_READ = 4;
+}
+
+// OrganizationRef is a reference to an Organization, either an id or a name.
+//
+// This is used in requests.
+message OrganizationRef {
+  option (buf.registry.priv.extension.v1beta1.message).request_only = true;
+
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    // The id of the Organization.
+    string id = 1 [(buf.validate.field).string.tuuid = true];
+    // The name of the Organization.
+    string name = 2 [(buf.validate.field).string = {
+      min_len: 1
+      max_len: 48
+      pattern: "^[a-z]([a-z0-9-]*[a-z0-9])?$"
+    }];
+  }
+}
