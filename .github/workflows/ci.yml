@@ -238,7 +238,10 @@ jobs:
 
   dependency-review:
     name: dependency-review
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request' &&
+      (github.event.repository.visibility == 'public' ||
+       vars.DEPENDENCY_REVIEW_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
