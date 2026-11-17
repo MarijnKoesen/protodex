@@ -68,6 +68,17 @@ func TestMigrateUpDownIdempotent(t *testing.T) {
 	if !hasColumn(t, s, "owners", "mirror") {
 		t.Fatal("owners.mirror missing after up")
 	}
+	if !hasColumn(t, s, "labels", "id") || !hasColumn(t, s, "modules", "updated_at") {
+		t.Fatal("00004 columns missing after up")
+	}
+	for range 2 { // 00005 (label id index), 00004 (module/label columns)
+		if err := s.Rollback(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if hasColumn(t, s, "labels", "id") || hasColumn(t, s, "modules", "updated_at") {
+		t.Fatal("00004 not rolled back cleanly")
+	}
 	if err := s.Rollback(ctx); err != nil { // 00003: drops the owner columns
 		t.Fatal(err)
 	}
@@ -194,5 +205,50 @@ func TestOwnerMigrationBackfillsUpdatedAt(t *testing.T) {
 	}
 	if o.Mirror || !o.UpdatedAt.Equal(o.CreatedAt) || o.CreatedAt.UnixMicro() != 42 {
 		t.Fatalf("migrated owner = %+v", o)
+	}
+}
+
+func TestLabelMigrationBackfillsIDs(t *testing.T) {
+	ctx := context.Background()
+	s := open(t, filepath.Join(t.TempDir(), "p.db"))
+	defer func() { _ = s.Close() }()
+	p, err := s.provider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.UpTo(ctx, 3); err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		`INSERT INTO owners (id, name, type, created_at) VALUES ('o1', 'acme', 'organization', 1)`,
+		`INSERT INTO modules (id, owner_id, name, visibility, default_label, created_at) VALUES ('m1', 'o1', 'api', 'public', 'main', 7)`,
+		`INSERT INTO commits (id, module_id, digest, created_at) VALUES ('c1', 'm1', 'b5:aa', 8)`,
+		`INSERT INTO labels (module_id, name, commit_id, archived, updated_at) VALUES ('m1', 'main', 'c1', 0, 9)`,
+		`INSERT INTO labels (module_id, name, commit_id, archived, updated_at) VALUES ('m1', 'old', 'c1', 1, 10)`,
+	} {
+		if _, err := s.writer.ExecContext(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	m, err := s.GetModuleByID(ctx, "m1")
+	if err != nil || !m.UpdatedAt.Equal(m.CreatedAt) || m.Deprecated {
+		t.Fatalf("migrated module = %+v, %v", m, err)
+	}
+	ls, err := s.ListLabels(ctx, "m1")
+	if err != nil || len(ls) != 2 {
+		t.Fatalf("ListLabels = %+v, %v", ls, err)
+	}
+	if ls[0].ID == "" || ls[0].ID == ls[1].ID || len(ls[0].ID) != 32 {
+		t.Fatalf("label ids not backfilled: %+v", ls)
+	}
+	if ls[0].ArchivedAt != nil || ls[1].ArchivedAt == nil || ls[1].ArchivedAt.UnixMicro() != 10 ||
+		ls[0].CreatedAt.UnixMicro() != 9 {
+		t.Fatalf("label timestamps not backfilled: %+v", ls)
+	}
+	if got, err := s.GetLabelByID(ctx, ls[1].ID); err != nil || got.Name != "old" {
+		t.Fatalf("GetLabelByID = %+v, %v", got, err)
 	}
 }

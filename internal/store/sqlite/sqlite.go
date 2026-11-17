@@ -90,7 +90,7 @@ func (s *Store) provider() (*goose.Provider, error) {
 	if err != nil {
 		return nil, err
 	}
-	return goose.NewProvider(goose.DialectSQLite3, s.writer, sub)
+	return goose.NewProvider(goose.DialectSQLite3, s.writer, sub, goose.WithGoMigrations(labelIDsMigration))
 }
 
 // Migrate applies all pending migrations. It is idempotent.

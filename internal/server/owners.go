@@ -134,7 +134,7 @@ const maxPageSize = 250
 
 // page returns one page of os. The page token is the decimal offset of the
 // page; an empty next token means there are no more results.
-func page(os []store.Owner, size uint32, token string) ([]store.Owner, string, error) {
+func page[T any](os []T, size uint32, token string) ([]T, string, error) {
 	off := 0
 	if token != "" {
 		n, err := strconv.Atoi(token)

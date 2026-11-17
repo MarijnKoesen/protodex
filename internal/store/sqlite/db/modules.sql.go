@@ -10,8 +10,8 @@ import (
 )
 
 const createModule = `-- name: CreateModule :exec
-INSERT INTO modules (id, owner_id, name, visibility, default_label, created_at)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO modules (id, owner_id, name, visibility, default_label, description, url, deprecated, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateModuleParams struct {
@@ -20,7 +20,11 @@ type CreateModuleParams struct {
 	Name         string
 	Visibility   string
 	DefaultLabel string
+	Description  string
+	Url          string
+	Deprecated   int64
 	CreatedAt    int64
+	UpdatedAt    int64
 }
 
 func (q *Queries) CreateModule(ctx context.Context, arg CreateModuleParams) error {
@@ -30,7 +34,11 @@ func (q *Queries) CreateModule(ctx context.Context, arg CreateModuleParams) erro
 		arg.Name,
 		arg.Visibility,
 		arg.DefaultLabel,
+		arg.Description,
+		arg.Url,
+		arg.Deprecated,
 		arg.CreatedAt,
+		arg.UpdatedAt,
 	)
 	return err
 }
@@ -57,7 +65,7 @@ func (q *Queries) DeleteModuleLabels(ctx context.Context, moduleID string) error
 }
 
 const getModule = `-- name: GetModule :one
-SELECT id, owner_id, name, visibility, default_label, created_at FROM modules WHERE owner_id = ? AND name = ?
+SELECT id, owner_id, name, visibility, default_label, created_at, description, url, deprecated, updated_at FROM modules WHERE owner_id = ? AND name = ?
 `
 
 type GetModuleParams struct {
@@ -75,12 +83,76 @@ func (q *Queries) GetModule(ctx context.Context, arg GetModuleParams) (Module, e
 		&i.Visibility,
 		&i.DefaultLabel,
 		&i.CreatedAt,
+		&i.Description,
+		&i.Url,
+		&i.Deprecated,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
+const getModuleByID = `-- name: GetModuleByID :one
+SELECT id, owner_id, name, visibility, default_label, created_at, description, url, deprecated, updated_at FROM modules WHERE id = ?
+`
+
+func (q *Queries) GetModuleByID(ctx context.Context, id string) (Module, error) {
+	row := q.db.QueryRowContext(ctx, getModuleByID, id)
+	var i Module
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerID,
+		&i.Name,
+		&i.Visibility,
+		&i.DefaultLabel,
+		&i.CreatedAt,
+		&i.Description,
+		&i.Url,
+		&i.Deprecated,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listAllModules = `-- name: ListAllModules :many
+SELECT id, owner_id, name, visibility, default_label, created_at, description, url, deprecated, updated_at FROM modules ORDER BY owner_id, name
+`
+
+func (q *Queries) ListAllModules(ctx context.Context) ([]Module, error) {
+	rows, err := q.db.QueryContext(ctx, listAllModules)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Module
+	for rows.Next() {
+		var i Module
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerID,
+			&i.Name,
+			&i.Visibility,
+			&i.DefaultLabel,
+			&i.CreatedAt,
+			&i.Description,
+			&i.Url,
+			&i.Deprecated,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listModules = `-- name: ListModules :many
-SELECT id, owner_id, name, visibility, default_label, created_at FROM modules WHERE owner_id = ? ORDER BY name
+SELECT id, owner_id, name, visibility, default_label, created_at, description, url, deprecated, updated_at FROM modules WHERE owner_id = ? ORDER BY name
 `
 
 func (q *Queries) ListModules(ctx context.Context, ownerID string) ([]Module, error) {
@@ -99,6 +171,10 @@ func (q *Queries) ListModules(ctx context.Context, ownerID string) ([]Module, er
 			&i.Visibility,
 			&i.DefaultLabel,
 			&i.CreatedAt,
+			&i.Description,
+			&i.Url,
+			&i.Deprecated,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -111,4 +187,35 @@ func (q *Queries) ListModules(ctx context.Context, ownerID string) ([]Module, er
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateModule = `-- name: UpdateModule :execrows
+UPDATE modules SET visibility = ?, default_label = ?, description = ?, url = ?, deprecated = ?, updated_at = ?
+WHERE id = ?
+`
+
+type UpdateModuleParams struct {
+	Visibility   string
+	DefaultLabel string
+	Description  string
+	Url          string
+	Deprecated   int64
+	UpdatedAt    int64
+	ID           string
+}
+
+func (q *Queries) UpdateModule(ctx context.Context, arg UpdateModuleParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateModule,
+		arg.Visibility,
+		arg.DefaultLabel,
+		arg.Description,
+		arg.Url,
+		arg.Deprecated,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

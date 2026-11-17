@@ -184,7 +184,7 @@ func TestAnonymousOnlyForReads(t *testing.T) {
 	e := newAuthEnv(t)
 	ctx := context.Background()
 	mc := modulev1connect.NewModuleServiceClient(http.DefaultClient, e.url)
-	// Anonymous read reaches the (unimplemented) handler.
+	// Anonymous read reaches the handler.
 	_, err := mc.GetModules(ctx, connect.NewRequest(&modulev1.GetModulesRequest{}))
 	if connect.CodeOf(err) == connect.CodeUnauthenticated {
 		t.Fatalf("anonymous read rejected: %v", err)

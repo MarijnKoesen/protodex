@@ -37,14 +37,24 @@ type Owner struct {
 	UpdatedAt time.Time
 }
 
+// Module visibilities.
+const (
+	VisibilityPublic  = "public"
+	VisibilityPrivate = "private"
+)
+
 // Module is a repository of protobuf files.
 type Module struct {
 	ID           string
 	OwnerID      string
 	Name         string
-	Visibility   string // "public" or "private"
+	Visibility   string // VisibilityPublic or VisibilityPrivate
 	DefaultLabel string
+	Description  string
+	URL          string
+	Deprecated   bool
 	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // Commit is an immutable snapshot of a module.
@@ -55,12 +65,20 @@ type Commit struct {
 	CreatedAt time.Time
 }
 
-// Label is a movable pointer to a commit.
+// Label is a movable pointer to a commit. Its ID is assigned on creation and
+// kept when the label moves.
 type Label struct {
-	ModuleID  string
-	Name      string
-	CommitID  string
-	Archived  bool
+	ID       string
+	ModuleID string
+	Name     string
+	CommitID string
+	Archived bool
+	// ArchivedAt is set while the label is archived.
+	ArchivedAt *time.Time
+	// UpdatedBy is the owner ID of the user that last moved the label, or
+	// empty when unknown.
+	UpdatedBy string
+	CreatedAt time.Time
 	UpdatedAt time.Time
 }
 
@@ -128,17 +146,28 @@ type Querier interface {
 
 	CreateModule(ctx context.Context, m Module) (Module, error)
 	GetModule(ctx context.Context, ownerID, name string) (Module, error)
-	ListModules(ctx context.Context, ownerID string) ([]Module, error)
+	GetModuleByID(ctx context.Context, id string) (Module, error)
+	ListModules(ctx context.Context, ownerID string) ([]Module, error) // sorted by name
+	ListAllModules(ctx context.Context) ([]Module, error)              // sorted by owner ID, name
+	// UpdateModule stores m's Visibility, DefaultLabel, Description, URL and
+	// Deprecated, setting UpdatedAt to now when zero. It returns the stored
+	// module, or ErrNotFound for an unknown ID.
+	UpdateModule(ctx context.Context, m Module) (Module, error)
 	DeleteModule(ctx context.Context, id string) error
 
 	CreateCommit(ctx context.Context, c Commit) (Commit, error)
 	GetCommit(ctx context.Context, moduleID, id string) (Commit, error)
+	GetCommitByID(ctx context.Context, id string) (Commit, error)
 	ListCommits(ctx context.Context, moduleID string) ([]Commit, error) // newest first
 
-	// SetLabel creates the label or moves it to another commit.
+	// SetLabel creates the label or moves it to another commit, setting
+	// Archived, UpdatedBy and UpdatedAt. An existing label keeps its ID and
+	// CreatedAt. It returns the stored label.
 	SetLabel(ctx context.Context, l Label) (Label, error)
 	GetLabel(ctx context.Context, moduleID, name string) (Label, error)
-	ListLabels(ctx context.Context, moduleID string) ([]Label, error)
+	GetLabelByID(ctx context.Context, id string) (Label, error)
+	ListLabels(ctx context.Context, moduleID string) ([]Label, error) // sorted by name
+	// ArchiveLabel archives or unarchives a label (ErrNotFound if missing).
 	ArchiveLabel(ctx context.Context, moduleID, name string, archived bool) error
 
 	AddCommitDeps(ctx context.Context, deps []CommitDep) error

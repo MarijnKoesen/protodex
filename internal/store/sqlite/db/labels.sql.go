@@ -7,22 +7,25 @@ package db
 
 import (
 	"context"
+	"database/sql"
 )
 
 const archiveLabel = `-- name: ArchiveLabel :execrows
-UPDATE labels SET archived = ?, updated_at = ? WHERE module_id = ? AND name = ?
+UPDATE labels SET archived = ?, archived_at = ?, updated_at = ? WHERE module_id = ? AND name = ?
 `
 
 type ArchiveLabelParams struct {
-	Archived  int64
-	UpdatedAt int64
-	ModuleID  string
-	Name      string
+	Archived   int64
+	ArchivedAt sql.NullInt64
+	UpdatedAt  int64
+	ModuleID   string
+	Name       string
 }
 
 func (q *Queries) ArchiveLabel(ctx context.Context, arg ArchiveLabelParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, archiveLabel,
 		arg.Archived,
+		arg.ArchivedAt,
 		arg.UpdatedAt,
 		arg.ModuleID,
 		arg.Name,
@@ -34,7 +37,7 @@ func (q *Queries) ArchiveLabel(ctx context.Context, arg ArchiveLabelParams) (int
 }
 
 const getLabel = `-- name: GetLabel :one
-SELECT module_id, name, commit_id, archived, updated_at FROM labels WHERE module_id = ? AND name = ?
+SELECT module_id, name, commit_id, archived, updated_at, id, created_at, archived_at, updated_by FROM labels WHERE module_id = ? AND name = ?
 `
 
 type GetLabelParams struct {
@@ -51,12 +54,37 @@ func (q *Queries) GetLabel(ctx context.Context, arg GetLabelParams) (Label, erro
 		&i.CommitID,
 		&i.Archived,
 		&i.UpdatedAt,
+		&i.ID,
+		&i.CreatedAt,
+		&i.ArchivedAt,
+		&i.UpdatedBy,
+	)
+	return i, err
+}
+
+const getLabelByID = `-- name: GetLabelByID :one
+SELECT module_id, name, commit_id, archived, updated_at, id, created_at, archived_at, updated_by FROM labels WHERE id = ?
+`
+
+func (q *Queries) GetLabelByID(ctx context.Context, id string) (Label, error) {
+	row := q.db.QueryRowContext(ctx, getLabelByID, id)
+	var i Label
+	err := row.Scan(
+		&i.ModuleID,
+		&i.Name,
+		&i.CommitID,
+		&i.Archived,
+		&i.UpdatedAt,
+		&i.ID,
+		&i.CreatedAt,
+		&i.ArchivedAt,
+		&i.UpdatedBy,
 	)
 	return i, err
 }
 
 const listLabels = `-- name: ListLabels :many
-SELECT module_id, name, commit_id, archived, updated_at FROM labels WHERE module_id = ? ORDER BY name
+SELECT module_id, name, commit_id, archived, updated_at, id, created_at, archived_at, updated_by FROM labels WHERE module_id = ? ORDER BY name
 `
 
 func (q *Queries) ListLabels(ctx context.Context, moduleID string) ([]Label, error) {
@@ -74,6 +102,10 @@ func (q *Queries) ListLabels(ctx context.Context, moduleID string) ([]Label, err
 			&i.CommitID,
 			&i.Archived,
 			&i.UpdatedAt,
+			&i.ID,
+			&i.CreatedAt,
+			&i.ArchivedAt,
+			&i.UpdatedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -89,28 +121,38 @@ func (q *Queries) ListLabels(ctx context.Context, moduleID string) ([]Label, err
 }
 
 const setLabel = `-- name: SetLabel :exec
-INSERT INTO labels (module_id, name, commit_id, archived, updated_at)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO labels (id, module_id, name, commit_id, archived, archived_at, updated_by, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (module_id, name) DO UPDATE SET
   commit_id = excluded.commit_id,
   archived = excluded.archived,
+  archived_at = excluded.archived_at,
+  updated_by = excluded.updated_by,
   updated_at = excluded.updated_at
 `
 
 type SetLabelParams struct {
-	ModuleID  string
-	Name      string
-	CommitID  string
-	Archived  int64
-	UpdatedAt int64
+	ID         string
+	ModuleID   string
+	Name       string
+	CommitID   string
+	Archived   int64
+	ArchivedAt sql.NullInt64
+	UpdatedBy  string
+	CreatedAt  int64
+	UpdatedAt  int64
 }
 
 func (q *Queries) SetLabel(ctx context.Context, arg SetLabelParams) error {
 	_, err := q.db.ExecContext(ctx, setLabel,
+		arg.ID,
 		arg.ModuleID,
 		arg.Name,
 		arg.CommitID,
 		arg.Archived,
+		arg.ArchivedAt,
+		arg.UpdatedBy,
+		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
 	return err
