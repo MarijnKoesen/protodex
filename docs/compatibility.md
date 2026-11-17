@@ -7,6 +7,10 @@ fresh protodex (ephemeral store + filesystem blob store, a bootstrapped
 
 ## Matrix
 
+> The suite trusts its ephemeral TLS certificate via `SSL_CERT_FILE`, which
+> Go binaries on macOS ignore (older buf releases). Run it on Linux; macOS
+> is not supported by the harness.
+
 Result of the full matrix on the SQLite backend (2026-11-17, linux/amd64,
 `make conformance CONFORMANCE_VERSIONS=all`):
 

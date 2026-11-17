@@ -52,6 +52,12 @@ type bufCLI struct {
 }
 
 func newBufCLI(path string) (*bufCLI, error) {
+	// Scenarios run in a temporary working directory, so keep the path absolute.
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %s: %w", path, err)
+	}
+	path = abs
 	out, err := exec.Command(path, "--version").Output() //nolint:gosec // the configured buf binary
 	if err != nil {
 		return nil, fmt.Errorf("%s --version: %w", path, err)
