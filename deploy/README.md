@@ -23,7 +23,7 @@ without `--build`.
 
 The stack:
 
-- **protodex** on `localhost:8080` (h2c/HTTP, Connect + gRPC). Read-only
+- **protodex** on `localhost:8080` (bound to 127.0.0.1 only; edit the `ports` mapping in `docker-compose.yaml` to expose it) (h2c/HTTP, Connect + gRPC). Read-only
   root filesystem, all capabilities dropped, `no-new-privileges`, uid 65532.
   The only writable paths are the `protodex-data` named volume at
   `/var/lib/protodex` (for the SQLite database) and a `/tmp` tmpfs.
