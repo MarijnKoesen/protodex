@@ -78,7 +78,7 @@ func walkDeps(ctx context.Context, q store.Querier, roots []depCommit, visit fun
 }
 
 // topoSort orders commits so every commit comes before the commits it
-// depends on (dependents first, ties in discovery order). A dependency
+// depends on (dependents first, otherwise in the order commits become ready). A dependency
 // cycle cannot be produced by pushes, which only reference existing
 // commits, but corrupt data must not be served as a graph: it is
 // reported as FailedPrecondition.
