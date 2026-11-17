@@ -1,0 +1,106 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# One-command quickstart:  docker compose -f deploy/docker-compose.yaml up -d
+# See deploy/README.md for which settings are functional today and which are
+# wired ahead of the storage/blob/auth work (issues #7, #8).
+name: protodex
+
+x-hardening: &hardening
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  protodex:
+    <<: *hardening
+    image: ${PROTODEX_IMAGE:-ghcr.io/marijnkoesen/protodex:latest}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["serve"]
+    restart: unless-stopped
+    ports:
+      - "${PROTODEX_PORT:-8080}:8080"
+    environment:
+      # --- functional today (internal/config) ---
+      PROTODEX_ADDR: ":8080"
+      PROTODEX_LOG_LEVEL: ${PROTODEX_LOG_LEVEL:-info}
+      PROTODEX_LOG_FORMAT: json
+      # --- forward-looking: ignored until #7 (SQLite store) lands ---
+      PROTODEX_DB_PATH: /var/lib/protodex/protodex.db
+      # --- forward-looking: ignored until #8 (S3 blob store) lands ---
+      PROTODEX_BLOB_BACKEND: s3
+      PROTODEX_S3_ENDPOINT: http://minio:9000
+      PROTODEX_S3_REGION: us-east-1
+      PROTODEX_S3_BUCKET: ${PROTODEX_S3_BUCKET:-protodex}
+      PROTODEX_S3_FORCE_PATH_STYLE: "true"
+      PROTODEX_S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-protodex}
+      PROTODEX_S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-protodex-dev-secret}
+      # --- forward-looking: ignored until token auth lands ---
+      # Dev default only. Override in deploy/.env (see .env.example).
+      PROTODEX_BOOTSTRAP_ADMIN_TOKEN: ${PROTODEX_BOOTSTRAP_ADMIN_TOKEN:-protodex-dev-admin-token}
+    volumes:
+      - protodex-data:/var/lib/protodex
+    tmpfs:
+      - /tmp
+    depends_on:
+      bucket-init:
+        condition: service_completed_successfully
+
+  minio:
+    <<: *hardening
+    # MinIO runs as root inside its image and needs a few capabilities back.
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z}
+    command: ["server", "/data", "--console-address", ":9001"]
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-protodex}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-protodex-dev-secret}
+    ports:
+      # Console only, bound to localhost; the S3 API stays on the compose network.
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    tmpfs:
+      - /tmp
+      - /root/.minio
+      - /root/.mc
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  bucket-init:
+    <<: *hardening
+    image: ${MC_IMAGE:-quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z}
+    restart: "no"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-protodex}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-protodex-dev-secret}
+      BUCKET: ${PROTODEX_S3_BUCKET:-protodex}
+      MC_CONFIG_DIR: /tmp/.mc
+    tmpfs:
+      - /tmp
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$BUCKET"
+        mc anonymous set none "local/$$BUCKET"
+    depends_on:
+      minio:
+        condition: service_healthy
+
+volumes:
+  protodex-data:
+  minio-data:
