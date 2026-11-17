@@ -1,4 +1,4 @@
-# Agent image for Go projects: make, a C toolchain (for `go test -race`) and golangci-lint.
+# Agent image for Go projects: make, a C toolchain (for `go test -race`), golangci-lint and sqlc.
 ARG BASE
 FROM ${BASE}
 
@@ -21,3 +21,7 @@ ENV PATH="/usr/local/go/bin:/opt/go/bin:${PATH}" \
 ARG GOLANGCI_LINT_VERSION=v2.15.0
 RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
     | sh -s -- -b /usr/local/bin ${GOLANGCI_LINT_VERSION}
+
+ARG SQLC_VERSION=v1.30.0
+RUN GOBIN=/usr/local/bin go install github.com/sqlc-dev/sqlc/cmd/sqlc@${SQLC_VERSION} \
+    && go clean -cache -modcache
