@@ -47,6 +47,36 @@ jobs:
           path: coverage.out
           retention-days: 7
 
+  s3-contract:
+    name: s3-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PROTODEX_TEST_S3_ENDPOINT: http://127.0.0.1:8333
+      PROTODEX_TEST_S3_BUCKET: protodex-test
+      PROTODEX_TEST_S3_ACCESS_KEY: test
+      PROTODEX_TEST_S3_SECRET_KEY: test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - name: Start SeaweedFS (S3 gateway)
+        run: |
+          docker run -d --name seaweedfs --network host \
+            chrislusf/seaweedfs:latest server -s3 -dir=/data
+          for i in $(seq 1 60); do
+            curl -s -o /dev/null http://127.0.0.1:8333/ && exit 0
+            sleep 1
+          done
+          docker logs seaweedfs
+          exit 1
+      - name: S3 contract tests against SeaweedFS
+        run: go test -count=1 -v -run TestContractReal ./internal/blob/s3blob
+
   lint:
     name: lint
     runs-on: ubuntu-latest
@@ -208,7 +238,10 @@ jobs:
 
   dependency-review:
     name: dependency-review
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request' &&
+      (github.event.repository.visibility == 'public' ||
+       vars.DEPENDENCY_REVIEW_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

@@ -103,7 +103,7 @@ pass. See [docs/branch-protection.md](docs/branch-protection.md).
 | `docker`            | ci       | hadolint + Docker build (no push)                                |
 | `helm`              | ci       | `helm lint`, kubeconform (no-op until a chart exists)            |
 | `security`          | ci       | gitleaks secret scan, govulncheck                                |
-| `dependency-review` | ci       | new dependencies: vulnerabilities and licenses (PRs only)        |
+| `dependency-review` | ci       | PR dependency checks (private repos require opt-in; see branch-protection.md) |
 | `dco`               | pr       | every commit has `Signed-off-by`                                 |
 | `pr-title`          | pr       | PR title follows Conventional Commits                            |
 

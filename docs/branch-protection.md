@@ -15,8 +15,10 @@ Policy:
 
 Notes:
 
-- `dependency-review` needs the dependency graph enabled (on by default for
-  public repositories; private repositories need GitHub Advanced Security).
+- `dependency-review` runs on public repositories. For private repositories,
+  enable the dependency graph and GitHub Advanced Security, then set the
+  `DEPENDENCY_REVIEW_ENABLED` Actions variable to `true`; otherwise the job is
+  skipped. The `licenses` and `security` checks still run.
 - `gitleaks-action` needs a `GITLEAKS_LICENSE` secret only if the repository
   belongs to an organization. Personal-account repositories do not.
 - A check only becomes selectable as "required" after it has run once, so
