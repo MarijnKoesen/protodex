@@ -35,6 +35,7 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 		"ModuleUpdate":          testModuleUpdate,
 		"LabelIdentity":         testLabelIdentity,
 		"BlobGC":                testBlobGC,
+		"RolesAndContributors":  testRolesAndContributors,
 	}
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -599,5 +600,73 @@ func testLabelIdentity(t *testing.T, s store.Store) {
 	}
 	if got := must(s.SetLabel(ctx, store.Label{ModuleID: m.ID, Name: "main", CommitID: c2.ID})); got.Archived || got.ArchivedAt != nil {
 		t.Fatalf("SetLabel after archive = %+v", got)
+	}
+}
+
+func testRolesAndContributors(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	org, m := seed(t, s)
+	if org.Role != "" {
+		t.Fatalf("organization role = %q, want empty", org.Role)
+	}
+	u := must(s.CreateOwner(ctx, store.Owner{Name: "alice", Type: store.OwnerUser}))
+	if u.Role != store.RoleMember || must(s.GetOwner(ctx, "alice")).Role != store.RoleMember {
+		t.Fatalf("default user role = %q, want member", u.Role)
+	}
+	a := must(s.CreateOwner(ctx, store.Owner{Name: "root", Type: store.OwnerUser, Role: store.RoleAdmin}))
+	if must(s.GetOwnerByID(ctx, a.ID)).Role != store.RoleAdmin {
+		t.Fatal("admin role not stored")
+	}
+	if err := s.SetOwnerRole(ctx, u.ID, store.RoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	if got := must(s.GetOwnerByID(ctx, u.ID)); got.Role != store.RoleViewer {
+		t.Fatalf("role after SetOwnerRole = %q", got.Role)
+	}
+	is(t, s.SetOwnerRole(ctx, org.ID, store.RoleAdmin), store.ErrNotFound)
+	is(t, s.SetOwnerRole(ctx, "missing", store.RoleAdmin), store.ErrNotFound)
+	is(t, s.SetOwnerRole(ctx, u.ID, "superuser"), store.ErrConflict)
+	_, err := s.CreateOwner(ctx, store.Owner{Name: "org2", Type: store.OwnerOrganization, Role: store.RoleAdmin})
+	is(t, err, store.ErrConflict)
+
+	c := must(s.SetModuleContributor(ctx, store.ModuleContributor{ModuleID: m.ID, UserID: u.ID, Role: store.ContributorRead}))
+	if c.Role != store.ContributorRead || c.CreatedAt.IsZero() {
+		t.Fatalf("SetModuleContributor = %+v", c)
+	}
+	c2 := must(s.SetModuleContributor(ctx, store.ModuleContributor{ModuleID: m.ID, UserID: u.ID, Role: store.ContributorWrite,
+		UpdatedAt: c.UpdatedAt.Add(time.Second)}))
+	if c2.Role != store.ContributorWrite || !c2.CreatedAt.Equal(c.CreatedAt) {
+		t.Fatalf("changed grant = %+v, created %v", c2, c.CreatedAt)
+	}
+	must(s.SetModuleContributor(ctx, store.ModuleContributor{ModuleID: m.ID, UserID: a.ID, Role: store.ContributorAdmin}))
+	if got := must(s.GetModuleContributor(ctx, m.ID, u.ID)); got.Role != store.ContributorWrite {
+		t.Fatalf("GetModuleContributor = %+v", got)
+	}
+	_, err = s.GetModuleContributor(ctx, m.ID, org.ID)
+	is(t, err, store.ErrNotFound)
+	if cs := must(s.ListModuleContributors(ctx, m.ID)); len(cs) != 2 {
+		t.Fatalf("ListModuleContributors = %+v", cs)
+	}
+	if cs := must(s.ListUserContributions(ctx, u.ID)); len(cs) != 1 || cs[0].ModuleID != m.ID {
+		t.Fatalf("ListUserContributions = %+v", cs)
+	}
+	for _, bad := range []store.ModuleContributor{
+		{ModuleID: "missing", UserID: u.ID, Role: store.ContributorRead},
+		{ModuleID: m.ID, UserID: "missing", Role: store.ContributorRead},
+		{ModuleID: m.ID, UserID: u.ID, Role: "owner"},
+	} {
+		_, err := s.SetModuleContributor(ctx, bad)
+		is(t, err, store.ErrConflict)
+	}
+	if err := s.DeleteModuleContributor(ctx, m.ID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	is(t, s.DeleteModuleContributor(ctx, m.ID, u.ID), store.ErrNotFound)
+	// Grants go away with their module.
+	if err := s.DeleteModule(ctx, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if cs := must(s.ListUserContributions(ctx, a.ID)); len(cs) != 0 {
+		t.Fatalf("grants after module delete = %+v", cs)
 	}
 }

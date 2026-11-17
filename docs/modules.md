@@ -19,13 +19,14 @@ buf registry module label list|info|archive|unarchive registry.example.com/acme/
 - **Module names**: 2-100 characters; lowercase letters, digits and hyphens,
   starting with a letter and not ending with a hyphen. Unique per owner.
 - **Visibility** defaults to `private`. Public modules are readable
-  anonymously. Private modules are readable by the owning user, or by any
-  authenticated user for organization-owned modules. A private module the
-  caller cannot read is reported as `NotFound`.
-- **Writes** (create, update, delete, label changes) need a token. A user
-  may write their own namespace and any organization's (single-organization
-  model; membership is not modeled yet). Mirror owners' modules are
-  read-only over the API (`PermissionDenied`).
+  anonymously; private modules only by callers with a permission on them.
+  A private module the caller cannot read is reported as `NotFound`.
+- **Writes** need a token. Pushing and label changes need *write*
+  permission on the module; settings changes (`UpdateModules`) and deletion
+  need *admin*; creating needs a `member` role in one's own namespace or an
+  organization's (or the instance `admin` role). Mirror owners' modules are
+  read-only over the API (`PermissionDenied`). Roles, contributor grants
+  and the full matrix are in [permissions.md](permissions.md).
 - **Default label**: `main` unless set on creation. It is a name only: labels
   point at commits, so the label itself appears with the first push. It may
   name a label that does not exist yet, but not an archived one.
@@ -50,7 +51,7 @@ buf registry module label list|info|archive|unarchive registry.example.com/acme/
 | Unknown or hidden owner/module/label/commit | `NotFound` |
 | Module name taken | `AlreadyExists` |
 | Invalid module or label name | `InvalidArgument` |
-| Writing another user's namespace or a mirror owner | `PermissionDenied` |
+| Missing write/admin permission on a readable module, creating in another user's namespace, a mirror owner, read-only role | `PermissionDenied` |
 | Moving a label backwards, archiving the default label, archived default label | `FailedPrecondition` |
 
 `ListLabelHistory` returns `Unimplemented` (label history is not recorded

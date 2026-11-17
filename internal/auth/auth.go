@@ -131,7 +131,8 @@ func (a *Authenticator) Authenticate(ctx context.Context, secret, clientKey stri
 	return Identity{Owner: owner, Token: tok}, nil
 }
 
-// Bootstrap creates the first user and an initial token when no user exists.
+// Bootstrap creates the first user, an instance admin, and an initial token
+// when no user exists.
 // If secret is empty a new one is generated. It returns created=false (and no
 // secret) when a user already exists. The secret is returned, never logged.
 func Bootstrap(ctx context.Context, st store.Store, username, secret string) (out string, created bool, err error) {
@@ -174,7 +175,7 @@ func BootstrapIn(ctx context.Context, q store.Querier, username, secret string) 
 			return false, nil // already bootstrapped
 		}
 	}
-	u, err := q.CreateOwner(ctx, store.Owner{Name: username, Type: store.OwnerUser})
+	u, err := q.CreateOwner(ctx, store.Owner{Name: username, Type: store.OwnerUser, Role: store.RoleAdmin})
 	if err != nil {
 		return false, err
 	}

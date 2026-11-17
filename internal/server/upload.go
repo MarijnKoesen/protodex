@@ -116,7 +116,7 @@ func (s *uploadService) resolvePush(ctx context.Context, q store.Querier, req *m
 		if err != nil {
 			return nil, err
 		}
-		if err := checkWrite(ctx, o); err != nil {
+		if err := requireModule(ctx, q, o, m, permWrite); err != nil {
 			return nil, err
 		}
 		if seenModule[m.ID] {

@@ -52,6 +52,9 @@ func TestBootstrapAndAuthenticate(t *testing.T) {
 	}
 	// Only the hash is stored.
 	owner, _ := st.GetOwner(ctx, "admin")
+	if owner.Role != store.RoleAdmin {
+		t.Fatalf("bootstrap user role = %q, want admin", owner.Role)
+	}
 	toks, _ := st.ListTokens(ctx, owner.ID)
 	if len(toks) != 1 || toks[0].Hash == secret || toks[0].Hash != auth.HashSecret(secret) {
 		t.Fatalf("stored tokens: %+v", toks)

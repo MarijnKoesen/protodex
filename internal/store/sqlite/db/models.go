@@ -71,6 +71,14 @@ type Module struct {
 	UpdatedAt    int64
 }
 
+type ModuleContributor struct {
+	ModuleID  string
+	UserID    string
+	Role      string
+	CreatedAt int64
+	UpdatedAt int64
+}
+
 type Owner struct {
 	ID        string
 	Name      string
@@ -78,6 +86,7 @@ type Owner struct {
 	CreatedAt int64
 	Mirror    int64
 	UpdatedAt int64
+	Role      string
 }
 
 type Token struct {

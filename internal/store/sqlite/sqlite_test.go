@@ -83,6 +83,15 @@ func TestMigrateUpDownIdempotent(t *testing.T) {
 	if !hasIndex(t, s, "manifest_entries_blob_idx") {
 		t.Fatal("00006 index missing after up")
 	}
+	if !hasColumn(t, s, "owners", "role") || !hasColumn(t, s, "module_contributors", "role") {
+		t.Fatal("00007 columns missing after up")
+	}
+	if err := s.Rollback(ctx); err != nil { // 00007: roles and contributors
+		t.Fatal(err)
+	}
+	if hasColumn(t, s, "owners", "role") || hasColumn(t, s, "module_contributors", "role") {
+		t.Fatal("00007 not rolled back cleanly")
+	}
 	if err := s.Rollback(ctx); err != nil { // 00006: blob GC index
 		t.Fatal(err)
 	}

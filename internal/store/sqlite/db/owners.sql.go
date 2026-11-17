@@ -10,7 +10,7 @@ import (
 )
 
 const createOwner = `-- name: CreateOwner :exec
-INSERT INTO owners (id, name, type, mirror, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO owners (id, name, type, mirror, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateOwnerParams struct {
@@ -18,6 +18,7 @@ type CreateOwnerParams struct {
 	Name      string
 	Type      string
 	Mirror    int64
+	Role      string
 	CreatedAt int64
 	UpdatedAt int64
 }
@@ -28,6 +29,7 @@ func (q *Queries) CreateOwner(ctx context.Context, arg CreateOwnerParams) error 
 		arg.Name,
 		arg.Type,
 		arg.Mirror,
+		arg.Role,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -35,7 +37,7 @@ func (q *Queries) CreateOwner(ctx context.Context, arg CreateOwnerParams) error 
 }
 
 const getOwner = `-- name: GetOwner :one
-SELECT id, name, type, created_at, mirror, updated_at FROM owners WHERE name = ?
+SELECT id, name, type, created_at, mirror, updated_at, role FROM owners WHERE name = ?
 `
 
 func (q *Queries) GetOwner(ctx context.Context, name string) (Owner, error) {
@@ -48,12 +50,13 @@ func (q *Queries) GetOwner(ctx context.Context, name string) (Owner, error) {
 		&i.CreatedAt,
 		&i.Mirror,
 		&i.UpdatedAt,
+		&i.Role,
 	)
 	return i, err
 }
 
 const getOwnerByID = `-- name: GetOwnerByID :one
-SELECT id, name, type, created_at, mirror, updated_at FROM owners WHERE id = ?
+SELECT id, name, type, created_at, mirror, updated_at, role FROM owners WHERE id = ?
 `
 
 func (q *Queries) GetOwnerByID(ctx context.Context, id string) (Owner, error) {
@@ -66,12 +69,13 @@ func (q *Queries) GetOwnerByID(ctx context.Context, id string) (Owner, error) {
 		&i.CreatedAt,
 		&i.Mirror,
 		&i.UpdatedAt,
+		&i.Role,
 	)
 	return i, err
 }
 
 const listOwners = `-- name: ListOwners :many
-SELECT id, name, type, created_at, mirror, updated_at FROM owners ORDER BY name
+SELECT id, name, type, created_at, mirror, updated_at, role FROM owners ORDER BY name
 `
 
 func (q *Queries) ListOwners(ctx context.Context) ([]Owner, error) {
@@ -90,6 +94,7 @@ func (q *Queries) ListOwners(ctx context.Context) ([]Owner, error) {
 			&i.CreatedAt,
 			&i.Mirror,
 			&i.UpdatedAt,
+			&i.Role,
 		); err != nil {
 			return nil, err
 		}
@@ -116,6 +121,24 @@ type RenameOwnerParams struct {
 
 func (q *Queries) RenameOwner(ctx context.Context, arg RenameOwnerParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, renameOwner, arg.Name, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setOwnerRole = `-- name: SetOwnerRole :execrows
+UPDATE owners SET role = ?, updated_at = ? WHERE id = ? AND type = 'user'
+`
+
+type SetOwnerRoleParams struct {
+	Role      string
+	UpdatedAt int64
+	ID        string
+}
+
+func (q *Queries) SetOwnerRole(ctx context.Context, arg SetOwnerRoleParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setOwnerRole, arg.Role, arg.UpdatedAt, arg.ID)
 	if err != nil {
 		return 0, err
 	}

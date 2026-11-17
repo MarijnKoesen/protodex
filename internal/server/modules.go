@@ -16,51 +16,11 @@ import (
 
 	modulev1 "github.com/marijnkoesen/protodex/gen/buf/registry/module/v1"
 	"github.com/marijnkoesen/protodex/gen/buf/registry/module/v1/modulev1connect"
-	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/module"
 	"github.com/marijnkoesen/protodex/internal/store"
 )
 
-// Access rules (until the permissions model lands):
-//
-//   - Public modules are readable by anyone, including anonymous callers.
-//   - A user's own namespace is fully accessible to that user only.
-//   - Organization namespaces are accessible to every authenticated user
-//     (single-organization model; membership is not modeled yet).
-//   - Modules of mirror owners are readable like organization modules but
-//     cannot be created, changed or deleted over the API.
-//
-// A private module the caller cannot access is reported as NotFound, so its
-// existence does not leak.
-
-// hasAccess reports whether the caller may read private modules of o.
-func hasAccess(ctx context.Context, o store.Owner) bool {
-	me, ok := auth.FromContext(ctx)
-	if !ok {
-		return false
-	}
-	return o.Type != store.OwnerUser || o.ID == me.Owner.ID
-}
-
-// canRead reports whether the caller may see module m owned by o.
-func canRead(ctx context.Context, o store.Owner, m store.Module) bool {
-	return m.Visibility == store.VisibilityPublic || hasAccess(ctx, o)
-}
-
-// checkWrite fails unless the caller may create, change or delete modules
-// (and their labels) under o.
-func checkWrite(ctx context.Context, o store.Owner) error {
-	if _, err := caller(ctx); err != nil {
-		return err
-	}
-	switch {
-	case o.Mirror:
-		return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("modules of mirror owner %q are managed by mirroring", o.Name))
-	case !hasAccess(ctx, o):
-		return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("no write access to owner %q", o.Name))
-	}
-	return nil
-}
+// Access rules live in permissions.go.
 
 func moduleNotFound(owner, name string) error {
 	return connect.NewError(connect.CodeNotFound, fmt.Errorf("module %s/%s not found", owner, name))
@@ -80,7 +40,10 @@ func getModuleByID(ctx context.Context, q store.Querier, id string) (store.Owner
 	if err != nil {
 		return store.Owner{}, store.Module{}, internalErr(err)
 	}
-	if !canRead(ctx, o, m) {
+	if ok, err := canRead(ctx, q, o, m); err != nil || !ok {
+		if err != nil {
+			return store.Owner{}, store.Module{}, err
+		}
 		return store.Owner{}, store.Module{}, connect.NewError(connect.CodeNotFound, fmt.Errorf("module with id %s not found", id))
 	}
 	return o, m, nil
@@ -97,11 +60,17 @@ func getModuleByName(ctx context.Context, q store.Querier, ownerName, name strin
 		return store.Owner{}, store.Module{}, internalErr(err)
 	}
 	m, err := q.GetModule(ctx, o.ID, name)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && !canRead(ctx, o, m)) {
+	if errors.Is(err, store.ErrNotFound) {
 		return store.Owner{}, store.Module{}, moduleNotFound(ownerName, name)
 	}
 	if err != nil {
 		return store.Owner{}, store.Module{}, internalErr(err)
+	}
+	if ok, err := canRead(ctx, q, o, m); err != nil || !ok {
+		if err != nil {
+			return store.Owner{}, store.Module{}, err
+		}
+		return store.Owner{}, store.Module{}, moduleNotFound(ownerName, name)
 	}
 	return o, m, nil
 }
@@ -209,7 +178,11 @@ func (s *moduleService) ListModules(ctx context.Context, req *connect.Request[mo
 			}
 			owners[o.ID] = o
 		}
-		if canRead(ctx, o, mod) {
+		ok, err := canRead(ctx, s.st, o, mod)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
 			visible = append(visible, mod)
 		}
 	}
@@ -277,7 +250,7 @@ func (s *moduleService) CreateModules(ctx context.Context, req *connect.Request[
 			if err != nil {
 				return err
 			}
-			if err := checkWrite(ctx, o); err != nil {
+			if err := checkCreate(ctx, o); err != nil {
 				return err
 			}
 			if err := module.ValidateName(v.GetName()); err != nil {
@@ -322,7 +295,7 @@ func (s *moduleService) UpdateModules(ctx context.Context, req *connect.Request[
 			if err != nil {
 				return err
 			}
-			if err := checkWrite(ctx, o); err != nil {
+			if err := requireModule(ctx, q, o, m, permAdmin); err != nil {
 				return err
 			}
 			if v.Visibility != nil {
@@ -376,7 +349,7 @@ func (s *moduleService) DeleteModules(ctx context.Context, req *connect.Request[
 			if err != nil {
 				return err
 			}
-			if err := checkWrite(ctx, o); err != nil {
+			if err := requireModule(ctx, q, o, m, permAdmin); err != nil {
 				return err
 			}
 			if err := q.DeleteModule(ctx, m.ID); err != nil {

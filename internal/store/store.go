@@ -32,7 +32,40 @@ type Owner struct {
 	Type string // OwnerUser or OwnerOrganization
 	// Mirror marks an organization that reserves an upstream owner name
 	// (e.g. googleapis) for mirrored modules. Mirrors cannot be renamed.
-	Mirror    bool
+	Mirror bool
+	// Role is the instance role of a user (RoleViewer, RoleMember or
+	// RoleAdmin); empty for organizations. Creating a user with an empty
+	// role makes it a member.
+	Role      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// Instance roles of users, in ascending order of privilege.
+const (
+	// RoleViewer may read but never write, unless granted a module role.
+	RoleViewer = "viewer"
+	// RoleMember may write its own namespace and organization namespaces.
+	RoleMember = "member"
+	// RoleAdmin may read and write every module (except mirrors).
+	RoleAdmin = "admin"
+)
+
+// Module contributor roles, in ascending order of privilege.
+const (
+	// ContributorRead lets a user read a (private) module.
+	ContributorRead = "read"
+	// ContributorWrite also lets the user push and manage labels.
+	ContributorWrite = "write"
+	// ContributorAdmin also lets the user change settings and delete the module.
+	ContributorAdmin = "admin"
+)
+
+// ModuleContributor grants a user a role on one module.
+type ModuleContributor struct {
+	ModuleID  string
+	UserID    string
+	Role      string // ContributorRead, ContributorWrite or ContributorAdmin
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -144,6 +177,9 @@ type Querier interface {
 	// modules and tokens). It returns ErrNotFound for an unknown id and
 	// ErrConflict when the name is taken or the owner is a mirror.
 	RenameOwner(ctx context.Context, id, newName string) (Owner, error)
+	// SetOwnerRole sets the instance role of a user. It returns ErrNotFound
+	// when id is not a user.
+	SetOwnerRole(ctx context.Context, id, role string) error
 
 	CreateModule(ctx context.Context, m Module) (Module, error)
 	GetModule(ctx context.Context, ownerID, name string) (Module, error)
@@ -155,6 +191,15 @@ type Querier interface {
 	// module, or ErrNotFound for an unknown ID.
 	UpdateModule(ctx context.Context, m Module) (Module, error)
 	DeleteModule(ctx context.Context, id string) error
+
+	// SetModuleContributor grants or changes a user's role on a module,
+	// returning the stored grant (CreatedAt is kept on change). Unknown
+	// modules or users return ErrConflict.
+	SetModuleContributor(ctx context.Context, c ModuleContributor) (ModuleContributor, error)
+	GetModuleContributor(ctx context.Context, moduleID, userID string) (ModuleContributor, error)
+	ListModuleContributors(ctx context.Context, moduleID string) ([]ModuleContributor, error) // sorted by user ID
+	ListUserContributions(ctx context.Context, userID string) ([]ModuleContributor, error)    // sorted by module ID
+	DeleteModuleContributor(ctx context.Context, moduleID, userID string) error               // ErrNotFound if missing
 
 	CreateCommit(ctx context.Context, c Commit) (Commit, error)
 	GetCommit(ctx context.Context, moduleID, id string) (Commit, error)

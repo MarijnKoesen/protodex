@@ -7,11 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/marijnkoesen/protodex/internal/owner"
+	"github.com/marijnkoesen/protodex/internal/store"
 	"github.com/marijnkoesen/protodex/internal/store/sqlite"
 )
 
@@ -215,10 +217,112 @@ func TestOwnerCommand(t *testing.T) {
 		t.Fatalf("alice tokens = %v %v", toks, err)
 	}
 
+	if alice.Role != store.RoleMember {
+		t.Fatalf("alice role = %q, want member", alice.Role)
+	}
+	_ = s.Close()
+
+	// Roles.
+	if out, err = run("create", "-db", db, "-role", "viewer", "user", "vic"); err != nil || !strings.Contains(out, "(viewer)") {
+		t.Fatalf("create viewer: %q %v", out, err)
+	}
+	if _, err = run("create", "-db", db, "-role", "admin", "org", "x-org"); err == nil {
+		t.Fatal("-role accepted for an organization")
+	}
+	if _, err = run("create", "-db", db, "-role", "boss", "user", "x"); err == nil {
+		t.Fatal("unknown role accepted")
+	}
+	if out, err = run("role", "-db", db, "alice", "admin"); err != nil || !strings.Contains(out, "now admin") {
+		t.Fatalf("role: %q %v", out, err)
+	}
+	if _, err = run("role", "-db", db, "acme-corp", "admin"); err == nil {
+		t.Fatal("role set on an organization")
+	}
+	if _, err = run("rename", "-db", db, "-role", "admin", "alice", "al"); err == nil {
+		t.Fatal("-role accepted outside create")
+	}
+	if out, err = run("list", "-db", db); err != nil || !strings.Contains(out, "viewer") || !strings.Contains(out, "admin") {
+		t.Fatalf("list lacks roles: %q %v", out, err)
+	}
+	s, err = sqlite.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	for name, want := range map[string]string{"alice": store.RoleAdmin, "vic": store.RoleViewer, "bob": store.RoleMember} {
+		if o, err := s.GetOwner(ctx, name); err != nil || o.Role != want {
+			t.Fatalf("%s role = %q (%v), want %s", name, o.Role, err, want)
+		}
+	}
+
 	if _, err = run("list"); err == nil {
 		t.Fatal("missing -db accepted")
 	}
 	if _, err = run(); err == nil {
 		t.Fatal("missing action accepted")
+	}
+}
+
+func TestContributorCommand(t *testing.T) {
+	ctx := context.Background()
+	db := filepath.Join(t.TempDir(), "c.db")
+	noenv := func(string) string { return "" }
+	run := func(args ...string) (string, error) {
+		var out, errb bytes.Buffer
+		err := contributorCmd(ctx, args, noenv, &out, &errb)
+		return out.String(), err
+	}
+	if err := ownerCmd(ctx, []string{"create", "-db", db, "user", "alice"}, noenv, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"org", "mirror"} {
+		name := map[string]string{"org": "acme", "mirror": "googleapis"}[kind]
+		if err := ownerCmd(ctx, []string{"create", "-db", db, kind, name}, noenv, io.Discard, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := sqlite.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range []string{"acme", "googleapis"} {
+		ow, _ := s.GetOwner(ctx, o)
+		if _, err := s.CreateModule(ctx, store.Module{OwnerID: ow.ID, Name: "api", Visibility: store.VisibilityPrivate, DefaultLabel: "main"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = s.Close()
+
+	if out, err := run("add", "-db", db, "acme/api", "alice", "write"); err != nil || !strings.Contains(out, "granted write") {
+		t.Fatalf("add: %q %v", out, err)
+	}
+	if _, err := run("add", "-db", db, "acme/api", "alice", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run("list", "-db", db, "acme/api"); err != nil || !strings.Contains(out, "alice") || !strings.Contains(out, "admin") {
+		t.Fatalf("list: %q %v", out, err)
+	}
+	for _, bad := range [][]string{
+		{"add", "-db", db, "acme/api", "alice", "owner"},      // unknown role
+		{"add", "-db", db, "acme/api", "acme", "read"},        // not a user
+		{"add", "-db", db, "acme/nope", "alice", "read"},      // unknown module
+		{"add", "-db", db, "googleapis/api", "alice", "read"}, // mirror
+		{"add", "-db", db, "acme", "alice", "read"},           // malformed
+		{"add", "-db", db, "acme/api", "alice"},               // arity
+		{"frob", "-db", db, "acme/api"},
+		{"list", "acme/api"}, // no -db
+	} {
+		if _, err := run(bad...); err == nil {
+			t.Errorf("%v accepted", bad)
+		}
+	}
+	if _, err := run("remove", "-db", db, "acme/api", "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run("remove", "-db", db, "acme/api", "alice"); err == nil {
+		t.Fatal("removing a missing grant succeeded")
+	}
+	if out, err := run("list", "-db", db, "acme/api"); err != nil || strings.Contains(out, "alice") {
+		t.Fatalf("list after remove: %q %v", out, err)
 	}
 }

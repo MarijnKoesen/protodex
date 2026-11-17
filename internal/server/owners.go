@@ -32,7 +32,17 @@ func userProto(o store.Owner) *ownerv1.User {
 		Type:               ownerv1.UserType_USER_TYPE_STANDARD,
 		State:              ownerv1.UserState_USER_STATE_ACTIVE,
 		VerificationStatus: ownerv1.UserVerificationStatus_USER_VERIFICATION_STATUS_UNVERIFIED,
+		UserInstanceRole:   instanceRole(o),
 	}
+}
+
+// instanceRole maps the stored role to the API's instance role. The API
+// knows only admins and members; read-only viewers are reported as members.
+func instanceRole(o store.Owner) ownerv1.UserInstanceRole {
+	if o.Role == store.RoleAdmin {
+		return ownerv1.UserInstanceRole_USER_INSTANCE_ROLE_ADMIN
+	}
+	return ownerv1.UserInstanceRole_USER_INSTANCE_ROLE_MEMBER
 }
 
 func organizationProto(o store.Owner) *ownerv1.Organization {
@@ -219,20 +229,19 @@ func (s *userService) GetCurrentUser(ctx context.Context, _ *connect.Request[own
 	return connect.NewResponse(&ownerv1.GetCurrentUserResponse{User: userProto(me.Owner)}), nil
 }
 
-// ListUsers lists users. All users are standard and active; instance roles
-// and organization membership are not modeled yet, so filtering by them is
-// unimplemented.
+// ListUsers lists users. All users are standard and active; organization
+// membership is not modeled yet, so filtering by it is unimplemented.
 func (s *userService) ListUsers(ctx context.Context, req *connect.Request[ownerv1.ListUsersRequest]) (*connect.Response[ownerv1.ListUsersResponse], error) {
 	m := req.Msg
 	if len(m.GetOrganizationRefs()) > 0 {
 		return nil, errMembership()
 	}
-	if len(m.GetHasRoles()) > 0 {
-		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("filtering by instance role is not supported yet"))
-	}
 	users, err := listOwners(ctx, s.st, store.OwnerUser, m.GetNameQuery())
 	if err != nil {
 		return nil, err
+	}
+	if roles := m.GetHasRoles(); len(roles) > 0 {
+		users = slices.DeleteFunc(users, func(u store.Owner) bool { return !slices.Contains(roles, instanceRole(u)) })
 	}
 	if (len(m.GetHasTypes()) > 0 && !slices.Contains(m.GetHasTypes(), ownerv1.UserType_USER_TYPE_STANDARD)) ||
 		(len(m.GetHasStates()) > 0 && !slices.Contains(m.GetHasStates(), ownerv1.UserState_USER_STATE_ACTIVE)) {

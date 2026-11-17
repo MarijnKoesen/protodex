@@ -296,7 +296,7 @@ func (s *labelService) CreateOrUpdateLabels(ctx context.Context, req *connect.Re
 					return internalErr(err)
 				}
 			}
-			if err := checkWrite(ctx, l.owner); err != nil {
+			if err := requireModule(ctx, q, l.owner, l.mod, permWrite); err != nil {
 				return err
 			}
 			c, err := q.GetCommit(ctx, l.mod.ID, v.GetCommitId())
@@ -348,7 +348,7 @@ func (s *labelService) setArchived(ctx context.Context, refs []*modulev1.LabelRe
 			if err != nil {
 				return err
 			}
-			if err := checkWrite(ctx, l.owner); err != nil {
+			if err := requireModule(ctx, q, l.owner, l.mod, permWrite); err != nil {
 				return err
 			}
 			if archived && l.label.Name == l.mod.DefaultLabel {

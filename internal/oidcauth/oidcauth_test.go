@@ -87,7 +87,7 @@ func TestLoginMintsWorkingToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id.Owner.Name != "ann" || id.Owner.Type != "user" || id.Token.ExpiresAt == nil {
+	if id.Owner.Name != "ann" || id.Owner.Type != "user" || id.Owner.Role != "admin" || id.Token.ExpiresAt == nil {
 		t.Fatalf("identity = %+v", id)
 	}
 	ident, err := e.st.GetIdentity(context.Background(), e.idp.srv.URL, "sub-1")
@@ -107,6 +107,10 @@ func TestLoginMintsWorkingToken(t *testing.T) {
 	ident, _ = e.st.GetIdentity(context.Background(), e.idp.srv.URL, "sub-1")
 	if ident.Role != "member" {
 		t.Fatalf("role not refreshed: %+v", ident)
+	}
+	// The user's instance role follows the IdP.
+	if o := must(e.st.GetOwnerByID(context.Background(), id.Owner.ID)); o.Role != "member" {
+		t.Fatalf("owner role not refreshed: %+v", o)
 	}
 	if n := len(must(e.st.ListTokens(context.Background(), id.Owner.ID))); n != 2 {
 		t.Fatalf("tokens = %d", n)

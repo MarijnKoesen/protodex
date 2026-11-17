@@ -13,7 +13,7 @@ endorsed by Buf Technologies, Inc. See [CONTRIBUTING.md](CONTRIBUTING.md#clean-r
 
 ## Status
 
-Early bootstrap. `protodex serve` runs a skeleton server: most MVP RPCs return `unimplemented`; with `-db` set, `TokenService`, the owner services (`OwnerService`, `UserService`, `OrganizationService` reads), `ModuleService`, `LabelService`, `UploadService`, `CommitService`, `DownloadService`, `ResourceService`, `GraphService`, `FileDescriptorSetService` and bearer-token auth are live (first run: `protodex bootstrap`; owners: [docs/owners.md](docs/owners.md); modules and labels: [docs/modules.md](docs/modules.md); push: [docs/push.md](docs/push.md); blob garbage collection: [docs/gc.md](docs/gc.md); build/export: [docs/reads.md](docs/reads.md)). Also `/healthz` and `/readyz`. The roadmap and analysis are in
+Early bootstrap. `protodex serve` runs a skeleton server: most MVP RPCs return `unimplemented`; with `-db` set, `TokenService`, the owner services (`OwnerService`, `UserService`, `OrganizationService` reads), `ModuleService`, `LabelService`, `UploadService`, `CommitService`, `DownloadService`, `ResourceService`, `GraphService`, `FileDescriptorSetService` and bearer-token auth with roles, module visibility and contributor grants are live (first run: `protodex bootstrap`; permissions: [docs/permissions.md](docs/permissions.md); owners: [docs/owners.md](docs/owners.md); modules and labels: [docs/modules.md](docs/modules.md); push: [docs/push.md](docs/push.md); blob garbage collection: [docs/gc.md](docs/gc.md); build/export: [docs/reads.md](docs/reads.md)). Also `/healthz` and `/readyz`. The roadmap and analysis are in
 [`docs/plan.html`](docs/plan.html).
 
 ## Web UI
@@ -60,8 +60,8 @@ the stable `(issuer, subject)` pair, never by e-mail; a new login never takes
 over an existing account. `allowed_domains` requires a verified e-mail. The
 highest role among a user's groups (`viewer` < `member` < `admin`) is stored on
 each login; without a matching group, `default_role` applies, or login is
-refused if it is empty. Roles are recorded now and enforced by the upcoming
-permissions model. The Dex integration test runs when
+refused if it is empty. The role becomes the user's instance role on every
+login and is enforced as described in [docs/permissions.md](docs/permissions.md). The Dex integration test runs when
 `PROTODEX_TEST_DEX_ISSUER` is set (CI job `oidc-dex`).
 
 ## Non-goals

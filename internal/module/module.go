@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package module holds the module and label naming rules shared by the
-// ModuleService and LabelService handlers.
+// ModuleService and LabelService handlers, and the contributor grants behind
+// the `protodex contributor` command.
 package module
 
 import (

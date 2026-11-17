@@ -47,10 +47,12 @@ func Handler(log *slog.Logger, maxRequestBytes int64, obs *observability.Observa
 		connect.WithReadMaxBytes(int(min(maxRequestBytes, int64(^uint(0)>>1)))),
 		// Panics in handlers or interceptors become Connect internal errors.
 		recoveryOption(log),
-		// Outermost first: observe, authenticate, then validate the request message.
+		// Outermost first: observe, authenticate, authorize the procedure,
+		// then validate the request message.
 		connect.WithInterceptors(
 			observeInterceptor(obs),
 			authInterceptor(authn),
+			authzInterceptor(o.store),
 			validate.NewInterceptor(),
 		),
 	}
