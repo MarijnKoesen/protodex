@@ -5,6 +5,7 @@ package server_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,8 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
@@ -106,5 +109,69 @@ func TestRequestIDHandling(t *testing.T) {
 	_ = resp.Body.Close()
 	if got := resp.Header.Get("X-Request-Id"); got == "" || strings.ContainsAny(got, " ;") {
 		t.Errorf("unsafe id not replaced: %q", got)
+	}
+}
+
+func TestAccessLogRedactsAndPropagates(t *testing.T) {
+	var logs bytes.Buffer
+	rec := tracetest.NewSpanRecorder()
+	obs := observability.New().WithTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)))
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	ts := httptest.NewServer(server.Handler(slog.New(slog.NewJSONHandler(&logs, nil)), 1<<20, obs))
+	defer ts.Close()
+
+	// Unknown path with secret, query and Authorization header.
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, ts.URL+"/token/SECRETPATH?k=SECRETQUERY", nil)
+	req.Header.Set("Authorization", "Bearer SECRETTOKEN")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	// Upload bytes + traceparent propagation + request ID on span.
+	const tid = "0af7651916cd43dd8448eb211c80319c"
+	body := strings.NewReader(`{"contents":[]}`)
+	req, _ = http.NewRequestWithContext(context.Background(), http.MethodPost,
+		ts.URL+modulev1connect.UploadServiceUploadProcedure, body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-Id", "req-1")
+	req.Header.Set("Traceparent", "00-"+tid+"-b7ad6b7169203331-01")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	out := logs.String()
+	for _, secret := range []string{"SECRETPATH", "SECRETQUERY", "SECRETTOKEN"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("log leaks %s: %s", secret, out)
+		}
+	}
+	want := fmt.Sprintf("protodex_upload_bytes_total %d", len(`{"contents":[]}`))
+	mresp, err := http.Get(ts.URL + "/metrics") //nolint:noctx // test
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mb bytes.Buffer
+	_, _ = mb.ReadFrom(mresp.Body)
+	_ = mresp.Body.Close()
+	if !strings.Contains(mb.String(), want) {
+		t.Errorf("metrics missing %q", want)
+	}
+	found := false
+	for _, s := range rec.Ended() {
+		if s.SpanContext().TraceID().String() == tid {
+			found = true
+			for _, a := range s.Attributes() {
+				if a.Key == "protodex.request_id" && a.Value.AsString() != "req-1" {
+					t.Errorf("request id attr = %v", a.Value)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("span not joined to incoming trace")
 	}
 }

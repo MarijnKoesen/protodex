@@ -30,7 +30,7 @@ Spans: one server span per RPC (named by procedure), plus `protodex.store.<op>` 
 
 One structured line (`msg=access`) per HTTP request with `request_id`, `method`, `path`,
 `status`, `bytes_out`, `duration`, `remote` and, for RPCs, `procedure` and `code`.
-Headers, query strings and bodies are never logged, so tokens and file contents cannot leak.
+Headers, query strings and bodies are never logged; `path` is the RPC procedure, a known operational route, or `unmatched`, so tokens and file contents cannot leak. Trace spans for store/blob errors carry only the error type.
 `X-Request-Id` is accepted from clients if it matches `[A-Za-z0-9._-]{1,64}`; otherwise one is
 generated. It is echoed in the response header and attached to spans.
 

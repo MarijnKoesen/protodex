@@ -6,6 +6,7 @@ package observability
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -114,7 +115,8 @@ func (o *Observability) timed(ctx context.Context, kind, op string, h *prometheu
 	status := "ok"
 	if err != nil {
 		status = "error"
-		span.RecordError(err)
+		// Only the error type is exported: messages may contain secrets or content.
+		span.SetAttributes(attribute.String("error.type", fmt.Sprintf("%T", err)))
 		span.SetStatus(codes.Error, "operation failed")
 	}
 	h.WithLabelValues(op, status).Observe(time.Since(start).Seconds())

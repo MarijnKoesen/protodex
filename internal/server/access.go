@@ -29,6 +29,19 @@ type accessInfo struct {
 	code      string
 }
 
+// loggedPath returns a path that is safe to log: the RPC procedure, a known
+// operational route, or a fixed placeholder, never an arbitrary client path.
+func loggedPath(path string, info *accessInfo) string {
+	if info.procedure != "" {
+		return info.procedure
+	}
+	switch path {
+	case "/healthz", "/readyz", "/metrics":
+		return path
+	}
+	return "unmatched"
+}
+
 func newRequestID() string {
 	var b [12]byte
 	_, _ = rand.Read(b[:])
@@ -109,7 +122,7 @@ func accessLog(log *slog.Logger, obs *observability.Observability, next http.Han
 		attrs := []any{
 			"request_id", id,
 			"method", r.Method,
-			"path", r.URL.Path,
+			"path", loggedPath(r.URL.Path, info),
 			"status", sw.status,
 			"bytes_out", sw.bytes,
 			"duration", time.Since(start),

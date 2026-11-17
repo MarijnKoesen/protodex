@@ -46,8 +46,24 @@ func observeInterceptor(obs *observability.Observability) connect.UnaryIntercept
 			defer span.End()
 
 			start := time.Now()
-			resp, err := next(ctx, req)
 			code := "ok"
+			record := func() {
+				obs.Metrics.ObserveRPC(procedure, code, time.Since(start))
+				if info, ok := ctx.Value(accessKey{}).(*accessInfo); ok {
+					info.procedure, info.code = procedure, code
+				}
+			}
+			// Panics are converted to internal errors further out (recoveryOption);
+			// record them here, then re-panic so that conversion still happens.
+			defer func() {
+				if p := recover(); p != nil {
+					code = connect.CodeInternal.String()
+					span.SetStatus(codes.Error, code)
+					record()
+					panic(p)
+				}
+			}()
+			resp, err := next(ctx, req)
 			if err != nil {
 				c := connect.CodeOf(err)
 				code = c.String()
@@ -56,10 +72,7 @@ func observeInterceptor(obs *observability.Observability) connect.UnaryIntercept
 					span.SetStatus(codes.Error, code)
 				}
 			}
-			obs.Metrics.ObserveRPC(procedure, code, time.Since(start))
-			if info, ok := ctx.Value(accessKey{}).(*accessInfo); ok {
-				info.procedure, info.code = procedure, code
-			}
+			record()
 			return resp, err
 		}
 	}
