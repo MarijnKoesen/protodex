@@ -15,7 +15,7 @@ with them (see README non-goals). We need stable names before code accumulates.
 | Item | Value |
 |------|-------|
 | Project / binary name | `openbuf` (provisional, see below) |
-| Go module path | `github.com/MarijnKoesen/openbuf` |
+| Go module path | `github.com/marijnkoesen/openbuf` |
 | Container image | `ghcr.io/marijnkoesen/openbuf` |
 | Helm chart | OCI: `oci://ghcr.io/marijnkoesen/charts/openbuf` (chart name `openbuf`) |
 | Domain | None yet. The server host is always configuration, never hard-coded. |

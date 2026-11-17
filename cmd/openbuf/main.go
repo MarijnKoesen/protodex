@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/MarijnKoesen/openbuf/internal/version"
+	"github.com/marijnkoesen/openbuf/internal/version"
 )
 
 func main() {

@@ -4,7 +4,7 @@
 package version
 
 // Version is the release version, overridden at build time via
-// -ldflags "-X github.com/MarijnKoesen/openbuf/internal/version.Version=...".
+// -ldflags "-X github.com/marijnkoesen/openbuf/internal/version.Version=...".
 var Version = "dev"
 
 // String returns a human-readable version string.

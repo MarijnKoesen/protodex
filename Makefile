@@ -16,7 +16,7 @@ GO_LICENSES_VERSION   ?= v2.0.1
 # The race detector needs cgo + a C compiler; CI always has one.
 RACE ?= $(shell CC=$$($(GO) env CC); command -v $$CC >/dev/null 2>&1 && echo -race)
 
-LDFLAGS := -s -w -X github.com/MarijnKoesen/openbuf/internal/version.Version=$(VERSION)
+LDFLAGS := -s -w -X github.com/marijnkoesen/openbuf/internal/version.Version=$(VERSION)
 
 .PHONY: all
 all: lint test build
