@@ -19,3 +19,8 @@ after running `make capture`; see [rpc-matrix.md](rpc-matrix.md).
 - `registry module info --format=json` prints id, owner, name, create time,
   state and default label name, but not visibility or description.
 - `registry module label list` on a module without commits prints nothing.
+- `buf build <remote>` and `buf export <remote>` (by module, `:label` or
+  `:commit`) call `CommitService/GetCommits`, `GraphService/GetGraph`,
+  `ModuleService/GetModules`, `OwnerService/GetOwners` and, for commits not
+  yet in `BUF_CACHE_DIR`, `DownloadService/Download`; `GetGraph` is called
+  even for a module without dependencies. `FileDescriptorSetService` is not called.

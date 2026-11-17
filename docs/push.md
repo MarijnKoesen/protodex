@@ -57,7 +57,6 @@ Modules uploaded together in one request are not made dependencies of each
 other: only `dep_commit_ids` become edges (detecting local imports would need
 parsing the files).
 
-`buf push` of a module **with dependencies** also calls `GraphService` (and
-the CLI downloads dependency files), which are not implemented yet, so the
-CLI cannot push such modules until they land. The server side of dependencies
-is covered by API-level tests.
+`buf push` of a module **with dependencies** also calls `GraphService` and
+`DownloadService`; both are served now (see [reads.md](reads.md)), so the CLI
+can push such modules once `buf dep update` has written `buf.lock`.

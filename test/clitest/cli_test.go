@@ -361,3 +361,72 @@ func TestPush(t *testing.T) {
 	_, errOut = e.pushDir(true, other)
 	t.Logf("push to missing module: %s", errOut)
 }
+
+// TestBuildAndExport builds and exports a pushed module by name, label and
+// commit, and a module that depends on it.
+func TestBuildAndExport(t *testing.T) {
+	e := newEnv(t)
+	mod := e.host + "/acme/weather"
+	e.ok("registry", "module", "create", mod, "--visibility=public")
+	dir := writeModule(t, mod, map[string]string{"acme/weather/v1/weather.proto": weatherProto, "LICENSE": "Apache", "README.md": "# Weather"})
+	id, _ := e.pushDir(false, dir)
+	if again, _ := e.pushDir(false, dir, "--label=v1"); again != id {
+		t.Fatalf("push --label = %q, want %q", again, id)
+	}
+
+	// The module, its labels and its commit build to the same image.
+	var images []string
+	for _, ref := range []string{mod, mod + ":main", mod + ":v1", mod + ":" + id} {
+		out := e.ok("build", ref, "-o", "-#format=json")
+		if !strings.Contains(out, `"acme/weather/v1/weather.proto"`) || !strings.Contains(out, id) {
+			t.Fatalf("build %s = %s", ref, out)
+		}
+		images = append(images, out)
+	}
+	for _, img := range images[1:] {
+		if img != images[0] {
+			t.Fatalf("images differ:\n%s\n%s", images[0], img)
+		}
+	}
+
+	for _, ref := range []string{mod, mod + ":" + id} {
+		out := filepath.Join(t.TempDir(), "export")
+		e.ok("export", ref, "-o", out)
+		got, err := os.ReadFile(filepath.Join(out, "acme/weather/v1/weather.proto")) //nolint:gosec // test temp dir
+		if err != nil || string(got) != weatherProto {
+			t.Fatalf("export %s: %q, %v", ref, got, err)
+		}
+	}
+	e.fails("build", mod+":nope")
+	e.fails("export", e.host+"/acme/missing", "-o", t.TempDir())
+
+	// A module that imports weather: dep update resolves it, push records
+	// the dependency, and build/export of the remote include it.
+	app := e.host + "/acme/app"
+	e.ok("registry", "module", "create", app, "--visibility=public")
+	appDir := writeModule(t, app, map[string]string{"acme/app/v1/app.proto": `syntax = "proto3";
+package acme.app.v1;
+import "acme/weather/v1/weather.proto";
+message Trip { acme.weather.v1.Forecast forecast = 1; }
+`})
+	if err := os.WriteFile(filepath.Join(appDir, "buf.yaml"), []byte("version: v2\nmodules:\n  - path: .\n    name: "+app+"\ndeps:\n  - "+mod+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.runIn(appDir, false, "dep", "update")
+	lock, err := os.ReadFile(filepath.Join(appDir, "buf.lock")) //nolint:gosec // test temp dir
+	if err != nil || !strings.Contains(string(lock), id) {
+		t.Fatalf("buf.lock = %s, %v", lock, err)
+	}
+	e.pushDir(false, appDir)
+	out := e.ok("build", app, "-o", "-#format=json")
+	if !strings.Contains(out, `"acme/app/v1/app.proto"`) || !strings.Contains(out, `"acme/weather/v1/weather.proto"`) {
+		t.Fatalf("build %s = %s", app, out)
+	}
+	exp := filepath.Join(t.TempDir(), "export")
+	e.ok("export", app, "-o", exp)
+	for _, p := range []string{"acme/app/v1/app.proto", "acme/weather/v1/weather.proto"} {
+		if _, err := os.Stat(filepath.Join(exp, p)); err != nil {
+			t.Fatalf("export %s: %v", app, err)
+		}
+	}
+}
