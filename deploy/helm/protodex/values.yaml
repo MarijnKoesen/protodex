@@ -1,0 +1,278 @@
+# SPDX-License-Identifier: Apache-2.0
+# Default values for the protodex chart. See README.md for the full reference
+# and values.schema.json for validation rules.
+
+# -- Storage mode. Only "sqlite" exists today: a single replica writes SQLite on
+# a ReadWriteOnce PVC and Litestream streams it to S3. The Deployment always
+# runs exactly 1 replica with strategy Recreate in this mode.
+mode: sqlite
+
+image:
+  repository: ghcr.io/marijnkoesen/protodex
+  # -- Defaults to the chart appVersion.
+  tag: ""
+  # -- Pin by digest (sha256:...); takes precedence over tag.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# -- Server configuration, rendered into a ConfigMap as PROTODEX_* env vars
+# (see internal/config and deploy/README.md for which are functional today).
+config:
+  logLevel: info
+  logFormat: json
+  # -- Max request body size in bytes (PROTODEX_MAX_REQUEST_BYTES). Keep the
+  # ingress/gateway body limits at least this large.
+  maxRequestBytes: 67108864
+  shutdownTimeout: 30s
+  tracing:
+    enabled: false
+    # -- OTLP/HTTP collector URL; empty uses OTEL_EXPORTER_OTLP_* from extraEnv.
+    otlpEndpoint: ""
+  # -- Path of the SQLite database inside the data volume mount.
+  dbPath: /var/lib/protodex/protodex.db
+
+# -- Extra env vars for the protodex container (list of EnvVar).
+extraEnv: []
+# -- Extra envFrom sources for the protodex container.
+extraEnvFrom: []
+
+# -- S3 bucket used for blobs (forward-looking, issue #8) and by Litestream.
+# Names follow deploy/docker-compose.yaml.
+s3:
+  # -- Empty = AWS S3. Ignored (derived) when seaweedfs.enabled=true.
+  endpoint: ""
+  region: us-east-1
+  bucket: protodex
+  forcePathStyle: false
+  # -- Static credentials. Leave empty to use ambient credentials (IRSA, EKS
+  # Pod Identity, ...) via serviceAccount.annotations, or use existingSecret.
+  accessKeyId: ""
+  secretAccessKey: ""
+
+auth:
+  # -- Bootstrap admin token (forward-looking: used once token auth lands).
+  # Generate with `openssl rand -hex 32`. Prefer existingSecret.
+  bootstrapAdminToken: ""
+
+# -- Use a pre-existing Secret instead of the chart-managed one. It must hold
+# the keys named in secretKeys (missing optional keys are tolerated).
+existingSecret: ""
+secretKeys:
+  s3AccessKeyId: s3-access-key-id
+  s3SecretAccessKey: s3-secret-access-key
+  bootstrapAdminToken: bootstrap-admin-token
+
+persistence:
+  # -- Disable only for throwaway installs: data then lives in an emptyDir and
+  # is restored from the Litestream replica on every pod start.
+  enabled: true
+  # -- Use an existing PVC (must be ReadWriteOnce on block storage).
+  existingClaim: ""
+  # -- Block-storage class (never NFS/EFS, see README). Empty = cluster default.
+  storageClass: ""
+  size: 10Gi
+  annotations: {}
+
+litestream:
+  # -- Replicate the SQLite database to s3.bucket and restore on start when the
+  # PVC is empty.
+  enabled: true
+  image:
+    repository: litestream/litestream
+    tag: 0.5.18-scratch
+    digest: ""
+    pullPolicy: IfNotPresent
+  # -- Object key prefix inside the bucket.
+  path: litestream/protodex.db
+  syncInterval: 1s
+  # -- Run the replicator as a native sidecar (init container with
+  # restartPolicy: Always, Kubernetes >= 1.29) so it starts before protodex and
+  # stops after it, flushing the last WAL frames. Set false on older clusters.
+  nativeSidecar: true
+  # -- Restore from the replica when the database file does not exist.
+  restore:
+    enabled: true
+  metrics:
+    # -- Expose Litestream metrics on this port (scraped by the ServiceMonitor).
+    enabled: true
+    port: 9090
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 256Mi
+  # -- Extra keys merged into the generated litestream.yml (top level).
+  extraConfig: {}
+
+# -- Optional single-node SeaweedFS (S3 gateway) for evaluation and small
+# installs, mirroring deploy/docker-compose.yaml. Use a managed S3 service for
+# production. Requires s3.accessKeyId/secretAccessKey or existingSecret.
+seaweedfs:
+  enabled: false
+  image:
+    repository: chrislusf/seaweedfs
+    # -- Pin a release tag for reproducible deployments.
+    tag: latest
+    digest: ""
+    pullPolicy: IfNotPresent
+  persistence:
+    storageClass: ""
+    size: 20Gi
+  volumeSizeLimitMB: 1024
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 1Gi
+
+serviceAccount:
+  create: true
+  name: ""
+  # -- e.g. eks.amazonaws.com/role-arn for IRSA.
+  annotations: {}
+  automountServiceAccountToken: false
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Size limit of the /tmp emptyDir.
+tmpSizeLimit: 64Mi
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 2
+  timeoutSeconds: 3
+  failureThreshold: 60
+
+# -- Must exceed config.shutdownTimeout so in-flight requests can drain.
+terminationGracePeriodSeconds: 45
+
+priorityClassName: ""
+nodeSelector: {}
+tolerations: []
+affinity: {}
+# -- With a single replica this mainly controls zone placement; the RWO PVC
+# pins the pod to its volume's zone after the first schedule.
+topologySpreadConstraints: []
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  # -- Defaults suit ingress-nginx: large bodies for `buf push`, long timeouts.
+  # Note: ingress-nginx speaks HTTP/1.1 to the backend unless
+  # backend-protocol is GRPC; Connect over HTTP/1.1 works either way.
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+  hosts:
+    - host: protodex.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: protodex-tls
+  #    hosts: [protodex.example.com]
+
+# -- Gateway API HTTPRoute. The Service port sets appProtocol
+# kubernetes.io/h2c so conforming gateways talk HTTP/2 (gRPC) to protodex.
+httpRoute:
+  enabled: false
+  # -- Implementation-specific annotations (e.g. body-size policies).
+  annotations: {}
+  parentRefs:
+    - name: gateway
+      # namespace: gateway-system
+      # sectionName: https
+  hostnames:
+    - protodex.example.com
+  # -- Extra HTTPRoute filters applied to the single rule.
+  filters: []
+  timeouts: {}
+  #  request: 300s
+
+metrics:
+  serviceMonitor:
+    # -- Requires the Prometheus Operator CRDs.
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+    # -- Also scrape the Litestream sidecar metrics.
+    litestream: true
+
+networkPolicy:
+  enabled: true
+  # -- Peers allowed to reach the HTTP port. Empty = any source (the ingress
+  # controller / gateway must be able to connect).
+  ingressFrom: []
+  # -- Peers allowed to reach the metrics ports (litestream). Empty = any.
+  metricsFrom: []
+  egress:
+    # -- Disable egress restrictions entirely.
+    allowAll: false
+    # -- Destinations for S3 (used when seaweedfs is disabled). Default: any IP.
+    s3To:
+      - ipBlock:
+          cidr: 0.0.0.0/0
+    s3Ports: [443]
+    # -- Extra egress rules (e.g. OTLP collector).
+    extraRules: []
+
+# -- Extra volumes/mounts for the protodex container.
+extraVolumes: []
+extraVolumeMounts: []

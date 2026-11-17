@@ -1,0 +1,23 @@
+Protodex {{ .Chart.AppVersion }} is installed as {{ include "protodex.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+Mode: {{ .Values.mode }} (1 replica, strategy Recreate: every upgrade or restart
+causes a short downtime while the single writer is replaced).
+
+Try it:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "protodex.fullname" . }} 8080:{{ .Values.service.port }}
+  curl -fsS http://localhost:8080/healthz
+{{- if not .Values.persistence.enabled }}
+
+WARNING: persistence.enabled=false. The database lives in an emptyDir and is
+lost when the pod is deleted{{ if .Values.litestream.enabled }} (it is restored from the Litestream replica on start){{ end }}.
+{{- end }}
+{{- if not .Values.litestream.enabled }}
+
+WARNING: litestream.enabled=false. The database is not replicated off the
+volume; losing the PVC loses all data.
+{{- end }}
+{{- if .Values.seaweedfs.enabled }}
+
+NOTE: the bundled SeaweedFS is a single node meant for evaluation. Use a
+managed S3 service for production.
+{{- end }}

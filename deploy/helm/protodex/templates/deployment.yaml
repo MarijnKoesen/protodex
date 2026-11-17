@@ -1,0 +1,200 @@
+{{- include "protodex.validate" . }}
+{{- $fullname := include "protodex.fullname" . }}
+{{- $dataDir := include "protodex.dataDir" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "protodex.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  # SQLite mode: exactly one writer. Recreate stops the old pod (releasing the
+  # RWO volume and the database lock) before the new one starts, so every
+  # rollout has a short downtime. Do not scale this Deployment.
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "protodex.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "protodex.labels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if not .Values.existingSecret }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "protodex.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- if or .Values.seaweedfs.enabled (and .Values.litestream.enabled (or .Values.litestream.restore.enabled .Values.litestream.nativeSidecar)) }}
+      initContainers:
+        {{- if .Values.seaweedfs.enabled }}
+        # Create the bucket on the bundled SeaweedFS (idempotent; retries until
+        # the gateway is up).
+        - name: bucket-init
+          image: {{ include "protodex.imageRef" (dict "image" .Values.seaweedfs.image "defaultTag" "latest") | quote }}
+          imagePullPolicy: {{ .Values.seaweedfs.image.pullPolicy }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              master="{{ include "protodex.seaweedfs.fullname" . }}:9333"
+              for i in $(seq 1 60); do
+                echo "s3.bucket.create -name $BUCKET" | weed shell -master="$master" >/tmp/out 2>&1 || true
+                if echo "s3.bucket.list" | weed shell -master="$master" 2>/dev/null | grep -qw "$BUCKET"; then
+                  echo "bucket $BUCKET ready"; exit 0
+                fi
+                sleep 2
+              done
+              cat /tmp/out; echo "bucket $BUCKET not ready" >&2; exit 1
+          env:
+            - name: HOME
+              value: /tmp
+            - name: BUCKET
+              value: {{ .Values.s3.bucket | quote }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+        {{- end }}
+        {{- if and .Values.litestream.enabled .Values.litestream.restore.enabled }}
+        # Restore the database from the replica when the volume is empty (new
+        # PVC, lost node, disaster recovery). No-op when the DB exists or no
+        # replica has been written yet.
+        - name: litestream-restore
+          image: {{ include "protodex.imageRef" (dict "image" .Values.litestream.image "defaultTag" "latest") | quote }}
+          imagePullPolicy: {{ .Values.litestream.image.pullPolicy }}
+          args:
+            - restore
+            - -config
+            - /etc/litestream.yml
+            - -if-db-not-exists
+            - -if-replica-exists
+            - {{ .Values.config.dbPath | quote }}
+          env:
+            {{- include "protodex.litestreamEnv" . | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.litestream.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "protodex.litestreamMounts" . | nindent 12 }}
+        {{- end }}
+        {{- if and .Values.litestream.enabled .Values.litestream.nativeSidecar }}
+        # Native sidecar: starts before protodex and stops after it.
+        {{- include "protodex.litestreamSidecar" (dict "root" . "native" true) | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: protodex
+          image: {{ include "protodex.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["serve"]
+          envFrom:
+            - configMapRef:
+                name: {{ $fullname }}
+            {{- with .Values.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            {{- include "protodex.secretEnv" (dict "root" . "name" "PROTODEX_S3_ACCESS_KEY_ID" "key" .Values.secretKeys.s3AccessKeyId "optional" true) | nindent 12 }}
+            {{- include "protodex.secretEnv" (dict "root" . "name" "PROTODEX_S3_SECRET_ACCESS_KEY" "key" .Values.secretKeys.s3SecretAccessKey "optional" true) | nindent 12 }}
+            {{- include "protodex.secretEnv" (dict "root" . "name" "PROTODEX_BOOTSTRAP_ADMIN_TOKEN" "key" .Values.secretKeys.bootstrapAdminToken "optional" true) | nindent 12 }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ $dataDir }}
+            - name: tmp
+              mountPath: /tmp
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- if and .Values.litestream.enabled (not .Values.litestream.nativeSidecar) }}
+        {{- include "protodex.litestreamSidecar" (dict "root" . "native" false) | nindent 8 }}
+        {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default $fullname }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.tmpSizeLimit }}
+        {{- if .Values.litestream.enabled }}
+        - name: litestream-config
+          configMap:
+            name: {{ $fullname }}-litestream
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

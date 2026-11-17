@@ -1,0 +1,123 @@
+{{- if .Values.seaweedfs.enabled }}
+{{- $name := include "protodex.seaweedfs.fullname" . }}
+# Bundled single-node SeaweedFS (master + volume + filer + S3 gateway in one
+# process), mirroring deploy/docker-compose.yaml. For evaluation and small
+# installs; use a managed S3-compatible service in production.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "protodex.labels" . | nindent 4 }}
+    app.kubernetes.io/component: seaweedfs
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "protodex.seaweedfs.selectorLabels" . | nindent 4 }}
+  ports:
+    - { name: s3, port: 8333, targetPort: s3, protocol: TCP }
+    - { name: master, port: 9333, targetPort: master, protocol: TCP }
+    - { name: master-grpc, port: 19333, targetPort: master-grpc, protocol: TCP }
+    - { name: filer, port: 8888, targetPort: filer, protocol: TCP }
+    - { name: filer-grpc, port: 18888, targetPort: filer-grpc, protocol: TCP }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "protodex.labels" . | nindent 4 }}
+    app.kubernetes.io/component: seaweedfs
+spec:
+  replicas: 1
+  serviceName: {{ $name }}
+  selector:
+    matchLabels:
+      {{- include "protodex.seaweedfs.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "protodex.labels" . | nindent 8 }}
+        app.kubernetes.io/component: seaweedfs
+      annotations:
+        {{- if not .Values.existingSecret }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: seaweedfs
+          image: {{ include "protodex.imageRef" (dict "image" .Values.seaweedfs.image "defaultTag" "latest") | quote }}
+          imagePullPolicy: {{ .Values.seaweedfs.image.pullPolicy }}
+          # Bypass the image entrypoint script; run weed directly as non-root.
+          command: ["weed"]
+          args:
+            - server
+            - -dir=/data
+            - -s3
+            - -ip.bind=0.0.0.0
+            - -master.volumeSizeLimitMB={{ .Values.seaweedfs.volumeSizeLimitMB }}
+          env:
+            - name: HOME
+              value: /tmp
+            # Admin identity of the S3 gateway (same credentials protodex uses).
+            {{- include "protodex.secretEnv" (dict "root" . "name" "AWS_ACCESS_KEY_ID" "key" .Values.secretKeys.s3AccessKeyId "optional" false) | nindent 12 }}
+            {{- include "protodex.secretEnv" (dict "root" . "name" "AWS_SECRET_ACCESS_KEY" "key" .Values.secretKeys.s3SecretAccessKey "optional" false) | nindent 12 }}
+          ports:
+            - { name: s3, containerPort: 8333, protocol: TCP }
+            - { name: master, containerPort: 9333, protocol: TCP }
+            - { name: master-grpc, containerPort: 19333, protocol: TCP }
+            - { name: filer, containerPort: 8888, protocol: TCP }
+            - { name: filer-grpc, containerPort: 18888, protocol: TCP }
+            - { name: volume, containerPort: 8080, protocol: TCP }
+            - { name: volume-grpc, containerPort: 18080, protocol: TCP }
+          readinessProbe:
+            tcpSocket:
+              port: s3
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: master
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.seaweedfs.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.tmpSizeLimit }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.seaweedfs.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.seaweedfs.persistence.size | quote }}
+{{- end }}

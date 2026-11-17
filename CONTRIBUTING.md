@@ -101,7 +101,7 @@ pass. See [docs/branch-protection.md](docs/branch-protection.md).
 | `licenses`          | ci       | LICENSE/NOTICE present, SPDX headers, go-licenses                |
 | `proto`             | ci       | `buf lint`, `buf format --diff` (no-op until `.proto` files)     |
 | `docker`            | ci       | hadolint + Docker build (no push)                                |
-| `helm`              | ci       | `helm lint`, kubeconform (no-op until a chart exists)            |
+| `helm`              | ci       | `helm lint --strict`, `helm template` \| kubeconform per `ci/*-values.yaml` |
 | `security`          | ci       | gitleaks secret scan, govulncheck                                |
 | `dependency-review` | ci       | PR dependency checks (private repos require opt-in; see branch-protection.md) |
 | `dco`               | pr       | every commit has `Signed-off-by`                                 |
