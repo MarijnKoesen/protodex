@@ -73,9 +73,9 @@ VERSIONS ?= $(shell cat test/capture/versions.txt)
 .PHONY: capture
 capture: ## Record buf CLI traffic per CLI version (needs docker + network)
 	@for v in $(VERSIONS); do \
-	  docker build -q -f test/capture/Dockerfile --build-arg BUF_VERSION=$$v -t openbuf-capture:$$v . && \
+	  docker build -q -f test/capture/Dockerfile --build-arg BUF_VERSION=$$v -t protodex-capture:$$v . && \
 	  mkdir -p test/capture/out && \
-	  docker run --rm -e BUF_TOKEN -e PUSH_MODULE -v "$$PWD/test/capture/out:/out" openbuf-capture:$$v || exit 1; \
+	  docker run --rm -e BUF_TOKEN -e PUSH_MODULE -v "$$PWD/test/capture/out:/out" protodex-capture:$$v || exit 1; \
 	done
 	$(MAKE) capture-matrix
 

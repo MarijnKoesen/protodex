@@ -18,7 +18,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"example.com/openbuf/test/capture"
+	"github.com/marijnkoesen/protodex/test/capture"
 )
 
 func main() {
