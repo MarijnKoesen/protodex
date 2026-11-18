@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/marijnkoesen/protodex/internal/auth"
+	"github.com/marijnkoesen/protodex/internal/blob"
 	"github.com/marijnkoesen/protodex/internal/blob/fsblob"
 	"github.com/marijnkoesen/protodex/internal/module"
 	"github.com/marijnkoesen/protodex/internal/observability"
@@ -200,6 +201,7 @@ type Env struct {
 	cli   *bufCLI
 	Host  string // host:port, the module remote
 	St    store.Store
+	Blobs blob.Store
 	Token string
 	// NoToken leaves BUF_TOKEN unset so the CLI uses .netrc credentials.
 	NoToken bool
@@ -251,7 +253,7 @@ func newEnv(t T, cli *bufCLI, b Backend, fault string) *Env {
 	t.Cleanup(ts.Close)
 
 	e := &Env{
-		t: t, cli: cli, Host: strings.TrimPrefix(ts.URL, "https://"), St: st, Token: secret,
+		t: t, cli: cli, Host: strings.TrimPrefix(ts.URL, "https://"), St: st, Blobs: blobs, Token: secret,
 		home: filepath.Join(dir, "home"), cache: filepath.Join(dir, "cache"),
 		certFile: filepath.Join(dir, "cert.pem"), log: logBuf, logger: logger,
 	}
