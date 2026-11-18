@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: Apache-2.0
+# buf CLI conformance suite (test/conformance, docs/compatibility.md): the
+# PR subset of buf versions on every pull request and push to main, the full
+# matrix nightly and on demand. Not a required check yet.
+name: conformance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  versions:
+    name: conformance-versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.versions.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - id: versions
+        env:
+          FULL: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ "$FULL" = true ]; then flag=; else flag=-pr; fi
+          echo "matrix=$(go run ./test/conformance/cmd/fetchbuf versions $flag -json)" >> "$GITHUB_OUTPUT"
+
+  conformance:
+    name: conformance (buf ${{ matrix.buf }})
+    needs: versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        buf: ${{ fromJSON(needs.versions.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      # Downloads the pinned buf release and verifies its SHA-256 against
+      # test/conformance/bufdl/checksums.txt before running it. Failures
+      # print the server's request log.
+      - name: Conformance suite
+        env:
+          PROTODEX_CONFORMANCE_BUF_VERSIONS: ${{ matrix.buf }}
+          PROTODEX_CONFORMANCE_REPORT: ${{ github.workspace }}/conformance-${{ matrix.buf }}.md
+        run: go test -count=1 -timeout 15m -v ./test/conformance/...
+      - name: Result summary
+        if: always()
+        run: |
+          if [ -f "conformance-${{ matrix.buf }}.md" ]; then
+            { echo "### buf ${{ matrix.buf }}"; cat "conformance-${{ matrix.buf }}.md"; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: conformance-${{ matrix.buf }}
+          path: conformance-${{ matrix.buf }}.md
+          if-no-files-found: ignore
+          retention-days: 14
