@@ -18,4 +18,11 @@
 //	PROTODEX_CONFORMANCE_FAULT=digest         inject a server bug; the suite must fail
 //	PROTODEX_CONFORMANCE_REPORT=out.md        write a Markdown result matrix
 //	PROTODEX_CONFORMANCE_CACHE=dir            download cache (default: user cache dir)
+//
+// The remote backend targets a deployed server instead (remote_test.go,
+// used by the kind e2e in deploy/e2e):
+//
+//	PROTODEX_CONFORMANCE_REMOTE=http://host:port  base URL of the server
+//	PROTODEX_CONFORMANCE_REMOTE_TOKEN=pdx_...     token of user "admin"
+//	PROTODEX_E2E_DISRUPT=cmd                      TestDisruption: disruption to survive
 package conformance

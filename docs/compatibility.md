@@ -101,6 +101,8 @@ network. Settings (see also the [package doc](https://github.com/MarijnKoesen/pr
 | `PROTODEX_CONFORMANCE_REPORT` | write the Markdown result table to this file |
 | `PROTODEX_CONFORMANCE_FAULT` | `digest`: inject a server bug (the suite must fail) |
 | `PROTODEX_CONFORMANCE_CACHE` | download cache (default `<user cache dir>/protodex/buf`) |
+| `PROTODEX_CONFORMANCE_REMOTE` | base URL of a deployed server (`remote` backend, below) |
+| `PROTODEX_CONFORMANCE_REMOTE_TOKEN` | token of user `admin` on that server |
 
 Test names are `TestConformance/<backend>/buf-<version>/<scenario>`, so
 `-run 'TestConformance/sqlite/buf-1.75.0/push'` selects one cell.
@@ -156,6 +158,28 @@ only one today. A new backend (Postgres, #23) registers a `Backend` from an
 func that opts out when its database is not configured (for example no DSN
 in the environment), and the whole matrix runs against it as
 `TestConformance/<name>/...`.
+
+### Remote: a deployed server
+
+The `remote` backend ([`remote_test.go`](../test/conformance/remote_test.go))
+runs the scenarios against an already running protodex instead of an
+in-process one. It skips unless `PROTODEX_CONFORMANCE_REMOTE` (e.g.
+`http://127.0.0.1:30080`) and `PROTODEX_CONFORMANCE_REMOTE_TOKEN` are set; the
+server needs user `admin` owning the token and organization `acme`
+(`protodex bootstrap -org acme`). Each scenario talks to the server through a
+local HTTPS reverse proxy (the CLI only speaks TLS), uses module names with a
+random suffix so scenarios can share the server, and inspects modules, labels
+and commits through the Connect API instead of the store. The
+[kind e2e](../deploy/e2e/README.md) uses it against the Helm chart:
+
+```sh
+PROTODEX_CONFORMANCE_REMOTE=http://127.0.0.1:8080 PROTODEX_CONFORMANCE_REMOTE_TOKEN=pdx_... \
+  PROTODEX_CONFORMANCE_BACKENDS=remote make conformance
+```
+
+`TestDisruption` (same file) is the e2e's lifecycle test: it seeds modules,
+commits and labels, runs the shell command in `PROTODEX_E2E_DISRUPT`, waits
+for the server and checks that nothing was lost and that writes work again.
 
 ## Catching digest bugs
 
