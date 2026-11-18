@@ -60,7 +60,7 @@ upstreams:
 Each mirrored commit stores its upstream URL, the pinned ref, the resolved
 upstream commit, the license and the import time. `protodex mirror status`
 lists them, and the API serves the upstream commit link as
-`Commit.source_control_url` (visible with `buf registry commit info`).
+`Commit.source_control_url` (visible with `buf registry module commit info`).
 
 ## Access
 

@@ -46,25 +46,37 @@ of it is functional on `main` right now:
 | `PROTODEX_RATE_LIMIT_IP_RATE`, `PROTODEX_RATE_LIMIT_TOKEN_RATE` (requests/s, `0` disables; config file `rate_limit.{ip,token}_{rate,burst}`; defaults 50/s per IP and 100/s per token), `PROTODEX_RATE_LIMIT_TRUST_FORWARDED_FOR`, `PROTODEX_MAX_PUSH_BYTES` (total bytes per push, default 64 MiB) | **Functional** |
 | `PROTODEX_ADDR`, `PROTODEX_LOG_LEVEL`, `PROTODEX_LOG_FORMAT` (also `PROTODEX_MAX_REQUEST_BYTES`, `PROTODEX_SHUTDOWN_TIMEOUT`, `PROTODEX_CONFIG`) | **Functional** (`internal/config`) |
 | `/healthz`, `/readyz` | **Functional** |
-| Registry RPCs (`buf push` / `buf dep update` / `buf registry login`) | Not yet: every RPC returns `unimplemented` |
+| Registry RPCs (`buf push` / `buf dep update` / `buf registry login`) | **Functional**, after `protodex bootstrap` and behind a TLS proxy (see below) |
 | `PROTODEX_DB_PATH` (SQLite on the `protodex-data` volume) | **Functional**: `serve` opens the database and holds its lock (#7) |
 | `PROTODEX_BLOB_BACKEND`, `PROTODEX_S3_*` (SeaweedFS) | **Ignored**: `serve` stores blobs on the filesystem (`PROTODEX_BLOB_DIR`); S3 wiring is pending ([#8](https://github.com/MarijnKoesen/protodex/issues/8)) |
-| `PROTODEX_BOOTSTRAP_ADMIN_TOKEN` | **Ignored** until token auth lands |
 
 The forward-looking variable names are provisional; the implementing issues
 may rename them, and this file and the compose file will be updated with them.
 Unknown `PROTODEX_*` variables are currently ignored, so the stack starts fine
 today.
 
-### Bootstrap admin token
+### First admin token
 
-`PROTODEX_BOOTSTRAP_ADMIN_TOKEN` defaults to `protodex-dev-admin-token` for
-local use only. Generate a real one with `openssl rand -hex 32` and put it in
-`deploy/.env` (git-ignored). Once auth is implemented the intended flow is:
+Run `bootstrap` once, before the first `up` (it creates and migrates the
+database and needs its lock, so the server must not be running). It prints the
+admin token once:
 
 ```sh
-buf registry login localhost:8080 --token-stdin <<<"$PROTODEX_BOOTSTRAP_ADMIN_TOKEN"
+docker compose -f deploy/docker-compose.yaml run --rm --no-deps protodex bootstrap -org acme
 ```
+
+To choose the token yourself, pass `-e PROTODEX_BOOTSTRAP_TOKEN=...` to that
+`run`; it must be a token in protodex's own format. Without `bootstrap` the
+database has no tables and registry RPCs fail with `internal error`.
+
+### TLS for `buf`
+
+`buf` only talks TLS to a registry, `localhost` included, and protodex serves
+plain HTTP on `localhost:8080`. Logging in straight against it fails with
+`the server hosted at that remote is unavailable`. Run a TLS proxy in front,
+for example `caddy reverse-proxy --from localhost:8443 --to localhost:8080`,
+and use `localhost:8443` with `buf` (see the
+[quickstart](../docs/quickstart.md#push-your-first-module)).
 
 ### SeaweedFS image
 
