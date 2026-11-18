@@ -36,9 +36,11 @@ type Owner struct {
 	// Role is the instance role of a user (RoleViewer, RoleMember or
 	// RoleAdmin); empty for organizations. Creating a user with an empty
 	// role makes it a member.
-	Role      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Role        string
+	Description string
+	URL         string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // Instance roles of users, in ascending order of privilege.
@@ -193,6 +195,13 @@ type Querier interface {
 	// SetOwnerRole sets the instance role of a user. It returns ErrNotFound
 	// when id is not a user.
 	SetOwnerRole(ctx context.Context, id, role string) error
+	// SetOwnerProfile sets the description and URL of an owner and returns
+	// it. It returns ErrNotFound for an unknown id.
+	SetOwnerProfile(ctx context.Context, id, description, url string) (Owner, error)
+	// DeleteOwner removes an owner together with its tokens, identities and
+	// contributor grants. It returns ErrNotFound for an unknown id and
+	// ErrConflict while the owner still owns modules.
+	DeleteOwner(ctx context.Context, id string) error
 
 	CreateModule(ctx context.Context, m Module) (Module, error)
 	GetModule(ctx context.Context, ownerID, name string) (Module, error)

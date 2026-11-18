@@ -70,7 +70,21 @@ With a database configured, the server answers:
 Reads work anonymously. List RPCs page with `page_size` (max 250) and an
 opaque `page_token`. Filtering by organization membership (`ListUsers`
 `organization_refs`, `ListOrganizations` `user_refs`) is not modeled yet and
-returns `Unimplemented`. Creating, updating and deleting users and
-organizations over the API, and organization settings, are reserved for
-instance admins and then return `Unimplemented`: use the `protodex owner`
-command.
+returns `Unimplemented`.
+
+### Administration over the API
+
+Instance admins can manage owners with the API, which is what
+`buf registry organization create|update|delete` uses:
+
+| RPC | Behaviour |
+|-----|-----------|
+| `OrganizationService.CreateOrganizations`, `UserService.CreateUsers` | Create owners atomically, with optional description and URL. A taken name is `AlreadyExists`, an invalid one `InvalidArgument`. New users are `member`s without a token: issue one with `protodex owner` or have them log in through OIDC. |
+| `OrganizationService.UpdateOrganizations`, `UserService.UpdateUsers` | Change description and URL. Mirror owners cannot be updated. |
+| `OrganizationService.DeleteOrganizations`, `UserService.DeleteUsers` | Delete owners atomically, with their tokens and contributor grants. Refused (`FailedPrecondition`) while the owner still owns modules, for mirror owners and for yourself. |
+
+Not modeled, so they return `Unimplemented`: user types other than standard,
+user state other than active, verification status, organization visibility
+other than public, and `GetOrganizationSettings` /
+`UpdateOrganizationSettings`. Run `protodex migrate` after upgrading
+(migration 9 adds the description and URL columns).

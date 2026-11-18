@@ -358,11 +358,11 @@ func TestInstanceRoleAndAdminProcedures(t *testing.T) {
 		t.Fatalf("ListUsers(member) = %v, %v", resp, err)
 	}
 
-	// Organization management is admin-only (and then still unimplemented).
+	// Organization management is admin-only.
 	for secret, want := range map[string]connect.Code{
 		"":           connect.CodeUnauthenticated,
 		memberSecret: connect.CodePermissionDenied,
-		e.secret:     connect.CodeUnimplemented,
+		e.secret:     0, // success
 	} {
 		var opts []connect.ClientOption
 		if secret != "" {
@@ -371,6 +371,12 @@ func TestInstanceRoleAndAdminProcedures(t *testing.T) {
 		oc := ownerv1connect.NewOrganizationServiceClient(http.DefaultClient, e.url, opts...)
 		_, err := oc.CreateOrganizations(ctx, connect.NewRequest(&ownerv1.CreateOrganizationsRequest{
 			Values: []*ownerv1.CreateOrganizationsRequest_Value{{Name: "neworg"}}}))
+		if want == 0 {
+			if err != nil {
+				t.Fatalf("admin CreateOrganizations: %v", err)
+			}
+			continue
+		}
 		wantCode(t, err, want)
 	}
 }

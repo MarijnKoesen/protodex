@@ -17,7 +17,7 @@ Every user has one instance role:
 |------|---------|
 | `viewer` (read-only) | Reads public modules, organization modules and their own namespace. Cannot create, push, label, change or delete anything, unless a module grants them more (see contributors). |
 | `member` | Full access to their own namespace and to organization namespaces (single-organization model). Cannot read or change other users' private modules. The default for new users. |
-| `admin` | Full access to every module of every owner, except mirror modules. Required for the admin-only RPCs (organization/user management; still unimplemented, use `protodex owner`). |
+| `admin` | Full access to every module of every owner, except mirror modules. Required for the admin-only RPCs (organization and user management, see [owners.md](owners.md)). |
 
 Roles come from:
 
