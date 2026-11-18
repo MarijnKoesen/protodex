@@ -1,0 +1,2002 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Self-hostable Protobuf schema registry compatible with the buf CLI">
+      
+      
+      
+      
+        <link rel="prev" href="../security/">
+      
+      
+        <link rel="next" href="../modules/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+      
+        <title>buf CLI compatibility - Protodex</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#buf-cli-compatibility" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Protodex" class="md-header__button md-logo" aria-label="Protodex" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Protodex
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              buf CLI compatibility
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/MarijnKoesen/protodex" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Protodex" class="md-nav__button md-logo" aria-label="Protodex" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Protodex
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/MarijnKoesen/protodex" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration from buf.build
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    buf CLI compatibility
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    buf CLI compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scenarios" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scenarios
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#buf-registry-command-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        buf registry command support
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running it
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running it">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#downloads-are-checksum-verified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Downloads are checksum-verified
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#failure-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failure output
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generated-code-compatibility-of-mirrors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generated-code compatibility of mirrors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#store-backends" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Store backends
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#catching-digest-bugs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catching digest bugs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#golden-fixtures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Golden fixtures
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#observed-cli-behaviour" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observed CLI behaviour
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../modules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Modules and labels
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../push/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Push
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reads (build, export)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../owners/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Owners
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../permissions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Permissions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mirror/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mirroring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Garbage collection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../observability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../webui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web UI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ and non-goals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../threat-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Threat model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security-checklist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security checklist
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mirror-licenses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mirror licenses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../branch-protection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Branch protection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0001-naming-and-addressing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR 0001 naming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0002-policy-apis-and-breaking-change-gates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR 0002 policy APIs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_7" id="__nav_6_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Behavior spec
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Behavior spec
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../behavior-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../behavior-spec/open-questions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Open questions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../behavior-spec/rpc-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RPC matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../behavior-spec/rpc-matrix.header/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RPC matrix header
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plan.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scenarios" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scenarios
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#buf-registry-command-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        buf registry command support
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running it
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running it">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#downloads-are-checksum-verified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Downloads are checksum-verified
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#failure-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failure output
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generated-code-compatibility-of-mirrors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generated-code compatibility of mirrors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#store-backends" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Store backends
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#catching-digest-bugs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catching digest bugs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#golden-fixtures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Golden fixtures
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#observed-cli-behaviour" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observed CLI behaviour
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="buf-cli-compatibility">buf CLI compatibility</h1>
+<p>Protodex is tested against released <code>buf</code> CLI binaries by the conformance
+suite in <a href="https://github.com/MarijnKoesen/protodex/blob/main/test/conformance"><code>test/conformance</code></a>. Each scenario starts a
+fresh protodex (ephemeral store + filesystem blob store, a bootstrapped
+<code>admin</code> token, organization <code>acme</code>) over TLS and drives the real CLI.</p>
+<h2 id="matrix">Matrix</h2>
+<blockquote>
+<p>The suite trusts its ephemeral TLS certificate via <code>SSL_CERT_FILE</code>, which
+Go binaries on macOS ignore (older buf releases). Run it on Linux; macOS
+is not supported by the harness.</p>
+</blockquote>
+<p>Result of the full matrix on the SQLite backend (2026-11-17, linux/amd64,
+<code>make conformance CONFORMANCE_VERSIONS=all</code>):</p>
+<table>
+<thead>
+<tr>
+<th>backend</th>
+<th>buf</th>
+<th>login</th>
+<th>module</th>
+<th>organization</th>
+<th>push</th>
+<th>labels</th>
+<th>dep-update</th>
+<th>build</th>
+<th>export</th>
+<th>lint</th>
+<th>breaking</th>
+<th>generate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>sqlite</td>
+<td>1.32.2</td>
+<td>pass</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>pass</td>
+<td>n/a</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+</tr>
+<tr>
+<td>sqlite</td>
+<td>1.35.1</td>
+<td>pass</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>pass</td>
+<td>n/a</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+</tr>
+<tr>
+<td>sqlite</td>
+<td>1.40.1</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+</tr>
+<tr>
+<td>sqlite</td>
+<td>1.45.0</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+</tr>
+<tr>
+<td>sqlite</td>
+<td>1.50.1</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+</tr>
+<tr>
+<td>sqlite</td>
+<td>1.55.1</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+</tr>
+<tr>
+<td>sqlite</td>
+<td>1.57.2</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+</tr>
+<tr>
+<td>sqlite</td>
+<td>1.60.0</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+</tr>
+<tr>
+<td>sqlite</td>
+<td>1.65.0</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+</tr>
+<tr>
+<td>sqlite</td>
+<td>1.70.0</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+</tr>
+<tr>
+<td>sqlite</td>
+<td>1.75.0</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+<td>pass</td>
+</tr>
+</tbody>
+</table>
+<p><code>n/a</code>: the CLI version has no such command (<code>buf registry module ...</code>,
+<code>buf registry organization ...</code> and label commands arrived in the 1.40 line). On those versions the other
+scenarios create modules directly in the store instead.</p>
+<p><strong>Minimum supported version: 1.32.2</strong> (the first CLI line with v2
+<code>buf.yaml</code> and the <code>buf.registry.*.v1</code> API protodex implements). Older CLIs
+speak the <code>v1alpha1</code> registry API and are not supported. The latest tested
+release is 1.75.0. The nightly CI run refreshes this matrix; update the table
+from its job summaries when it changes.</p>
+<h2 id="scenarios">Scenarios</h2>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>What the CLI does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>login</code></td>
+<td>unauthenticated <code>push</code> is refused; <code>registry login --token-stdin</code> writes <code>.netrc</code>; <code>registry whoami</code> (where available); <code>push</code> with the stored credentials; <code>registry logout</code>; push refused again</td>
+</tr>
+<tr>
+<td><code>module</code></td>
+<td><code>registry module create</code> / <code>info --format=json</code> / duplicate create (<code>already exists</code>) / <code>settings update</code> (or <code>update</code>) / <code>deprecate</code> / <code>undeprecate</code> / <code>delete</code></td>
+</tr>
+<tr>
+<td><code>organization</code></td>
+<td><code>registry organization create</code> / duplicate create and clash with an existing owner fail / <code>info --format=json</code> / <code>update --description --url</code> / <code>delete</code> is refused while the organization owns a module, then works</td>
+</tr>
+<tr>
+<td><code>push</code></td>
+<td>push, idempotent re-push, <code>--label</code>, changed content → new commit, <code>commit info</code>, push to a missing module fails</td>
+</tr>
+<tr>
+<td><code>labels</code></td>
+<td><code>label list</code>, <code>info</code>, <code>archive</code> (hidden from list, shown with <code>--archive-status=archived</code>), default label cannot be archived, <code>unarchive</code></td>
+</tr>
+<tr>
+<td><code>dep-update</code></td>
+<td><code>dep update</code> writes commit + b5 digest to <code>buf.lock</code>; a new upstream commit is picked up; build from a cold cache; push records the dep; remote build includes it</td>
+</tr>
+<tr>
+<td><code>build</code></td>
+<td><code>build</code> of a remote module by name, <code>:main</code>, <code>:label</code> and <code>:commit</code> gives identical images; unknown label / module fail; local workspace with remote dep builds from a cold cache</td>
+</tr>
+<tr>
+<td><code>export</code></td>
+<td><code>export</code> by name and commit; exporting a dependent module includes its dependency; missing module fails</td>
+</tr>
+<tr>
+<td><code>lint</code></td>
+<td>local module importing a remote module with a lint violation lints clean (deps are not linted); a local violation is reported; <code>buf lint &lt;remote&gt;</code> reports the remote violation</td>
+</tr>
+<tr>
+<td><code>breaking</code></td>
+<td><code>breaking --against &lt;remote&gt;</code> passes for unchanged content and reports a deleted field</td>
+</tr>
+<tr>
+<td><code>generate</code></td>
+<td><code>buf generate</code> with a <strong>local</strong> plugin (<code>protoc-gen-conformance</code>, built from this repo): local files only by default, remote dependency with <code>--include-imports</code>, and a remote module as input</td>
+</tr>
+</tbody>
+</table>
+<p>Each scenario adapts to the CLI by probing <code>buf &lt;command&gt; --help</code>, not by
+hard-coded version ranges, except the lint category: <code>STANDARD</code> from 1.40,
+<code>DEFAULT</code> before.</p>
+<h2 id="buf-registry-command-support"><code>buf registry</code> command support</h2>
+<p>Every <code>buf registry</code> subcommand that talks to the registry API, as of buf
+1.75.0:</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>login</code>, <code>logout</code>, <code>whoami</code></td>
+<td>supported (<code>login</code>, <code>whoami</code> scenarios)</td>
+</tr>
+<tr>
+<td><code>module create</code>, <code>info</code>, <code>update</code> / <code>settings update</code>, <code>deprecate</code>, <code>undeprecate</code>, <code>delete</code></td>
+<td>supported (<code>module</code> scenario)</td>
+</tr>
+<tr>
+<td><code>module label list</code>, <code>info</code>, <code>archive</code>, <code>unarchive</code></td>
+<td>supported (<code>labels</code> scenario)</td>
+</tr>
+<tr>
+<td><code>module commit info</code></td>
+<td>supported (<code>push</code> scenario)</td>
+</tr>
+<tr>
+<td><code>module commit list</code>, <code>resolve</code>, <code>add-label</code></td>
+<td>served by implemented RPCs (<code>ListCommits</code>, <code>GetCommits</code>, <code>CreateOrUpdateLabels</code>) but not covered by a scenario yet</td>
+</tr>
+<tr>
+<td><code>organization create</code>, <code>info</code>, <code>update</code> (<code>--description</code>, <code>--url</code>), <code>delete</code></td>
+<td>supported (<code>organization</code> scenario). Instance admins only. <code>delete</code> is refused while the organization owns modules, and for mirror owners</td>
+</tr>
+<tr>
+<td><code>plugin ...</code>, <code>policy ...</code>, <code>sdk ...</code></td>
+<td><strong>not supported</strong>: protodex implements no plugin, policy or generated-SDK services; the CLI gets <code>unimplemented</code></td>
+</tr>
+<tr>
+<td><code>cc</code></td>
+<td>local only (clears the CLI cache)</td>
+</tr>
+</tbody>
+</table>
+<p>There is no <code>buf registry user</code> or member command: users are provisioned by
+an instance admin (<code>UserService.CreateUsers</code> / <code>DeleteUsers</code>, or
+<code>protodex owner</code>) or through OIDC, and organization membership and
+organization settings (<code>GetOrganizationSettings</code>, <code>UpdateOrganizationSettings</code>)
+are not modeled (see <a href="../owners/">owners.md</a>).</p>
+<h2 id="running-it">Running it</h2>
+<pre><code class="language-sh">make conformance                                   # PR subset: 1.32.2, 1.57.2, 1.75.0
+make conformance CONFORMANCE_VERSIONS=all          # full matrix
+make conformance CONFORMANCE_VERSIONS=1.60.0       # one version
+PROTODEX_CONFORMANCE_BUF=/usr/local/bin/buf go test ./test/conformance/   # your own binary
+</code></pre>
+<p>Without any of these settings the suite uses <code>PROTODEX_TEST_BUF</code> or <code>buf</code> on
+<code>PATH</code>, and <strong>skips</strong> if neither exists, so <code>go test ./...</code> never needs the
+network. Settings (see also the <a href="https://github.com/MarijnKoesen/protodex/blob/main/test/conformance/doc.go">package doc</a>):</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PROTODEX_CONFORMANCE_BUF_VERSIONS</code></td>
+<td><code>pr</code>, <code>all</code> or <code>1.57.2,1.75.0</code>: download those releases</td>
+</tr>
+<tr>
+<td><code>PROTODEX_CONFORMANCE_BUF</code></td>
+<td>comma-separated buf binaries to test</td>
+</tr>
+<tr>
+<td><code>PROTODEX_CONFORMANCE_BACKENDS</code></td>
+<td>store backends to run (default: all registered)</td>
+</tr>
+<tr>
+<td><code>PROTODEX_CONFORMANCE_REPORT</code></td>
+<td>write the Markdown result table to this file</td>
+</tr>
+<tr>
+<td><code>PROTODEX_CONFORMANCE_FAULT</code></td>
+<td><code>digest</code>: inject a server bug (the suite must fail)</td>
+</tr>
+<tr>
+<td><code>PROTODEX_CONFORMANCE_CACHE</code></td>
+<td>download cache (default <code>&lt;user cache dir&gt;/protodex/buf</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>Test names are <code>TestConformance/&lt;backend&gt;/buf-&lt;version&gt;/&lt;scenario&gt;</code>, so
+<code>-run 'TestConformance/sqlite/buf-1.75.0/push'</code> selects one cell.</p>
+<h3 id="downloads-are-checksum-verified">Downloads are checksum-verified</h3>
+<p><code>go run ./test/conformance/cmd/fetchbuf get 1.75.0</code> (used by the suite)
+downloads <code>buf-&lt;OS&gt;-&lt;arch&gt;</code> from the GitHub release and refuses it unless its
+SHA-256 matches <a href="https://github.com/MarijnKoesen/protodex/blob/main/test/conformance/bufdl/checksums.txt"><code>bufdl/checksums.txt</code></a>,
+which is committed. To add a release:</p>
+<ol>
+<li><code>go run ./test/conformance/cmd/fetchbuf pin 1.76.0</code> (records the release's
+   published <code>sha256.txt</code> entries for Linux/macOS, x86_64/arm64).</li>
+<li>Add the version to <a href="https://github.com/MarijnKoesen/protodex/blob/main/test/conformance/bufdl/versions.txt"><code>bufdl/versions.txt</code></a>
+   (mark it <code>pr</code> if it becomes the latest; move the marker off the old one).</li>
+<li><code>make conformance CONFORMANCE_VERSIONS=1.76.0</code>, then update the table above.</li>
+</ol>
+<h3 id="failure-output">Failure output</h3>
+<p>On failure the test prints the CLI command, its stdout and stderr, and the
+server's request log for that scenario: every <code>buf</code> invocation interleaved
+with the access log (procedure, Connect code, duration) and the bodies of
+error responses.</p>
+<h2 id="generated-code-compatibility-of-mirrors">Generated-code compatibility of mirrors</h2>
+<p><code>test/conformance/gencompat_test.go</code> checks that the
+mirrored modules (see <a href="../mirror/">mirror.md</a>) are transparent: it imports the
+<code>googleapis/googleapis</code> and <code>bufbuild/protovalidate</code> pins of <code>mirror.yaml</code>
+into protodex, then runs <code>buf generate --include-imports</code> for a fixture
+module (<code>test/conformance/testdata/gencompat</code>) once against the mirrored
+modules and once against clones of the upstream repositories at the same
+pins. The Go (<code>protoc-gen-go</code>, <code>protoc-gen-go-grpc</code>) and TypeScript
+(<code>protoc-gen-es</code>) output must be identical apart from generator/compiler
+version header lines, and every mirrored <code>.proto</code> must equal upstream (path
+and bytes, so <code>go_package</code> and all options). Plugins are local and pinned
+(<code>protoc-gen-go</code> follows <code>go.mod</code>; the others are constants in the test).</p>
+<p>It needs the network, so it runs only with <code>PROTODEX_CONFORMANCE_GENCOMPAT=1</code>
+(the <code>generated-code compatibility</code> job of the conformance workflow).
+<code>PROTODEX_CONFORMANCE_GENCOMPAT_FAULT=go_package</code> makes the mirror alter a
+<code>go_package</code>; the test must then fail, and the workflow checks that it does.
+The test mirrors a small self-contained subset of googleapis (the whole tree
+does not build as one module because <code>google/cloud/*</code> imports protos that are
+not in the repository).</p>
+<h2 id="store-backends">Store backends</h2>
+<p>The suite is parametrised by metadata store backend
+(<a href="https://github.com/MarijnKoesen/protodex/blob/main/test/conformance/backend_test.go"><code>backend_test.go</code></a>). SQLite is the
+only one today. A new backend (Postgres, #23) registers a <code>Backend</code> from an
+<code>init</code> function in <code>test/conformance/backend_&lt;name&gt;_test.go</code>, with a <code>Skip</code>
+func that opts out when its database is not configured (for example no DSN
+in the environment), and the whole matrix runs against it as
+<code>TestConformance/&lt;name&gt;/...</code>.</p>
+<h2 id="catching-digest-bugs">Catching digest bugs</h2>
+<p><code>TestDigestFaultIsCaught</code> runs the <code>dep-update</code> and <code>build</code> scenarios with a
+deliberate digest bug: the server stores correct data but sends every
+module digest (in <code>Upload</code>, <code>GetCommits</code>, <code>GetGraph</code>, <code>Download</code> responses)
+with its last byte changed. It passes only if those scenarios fail <strong>because
+of the digest</strong>; the CLI reports <code>Digest verification failed ... Expected
+digest (from buf.lock) ... Actual digest ...</code>. This runs on every suite run.
+To see the whole matrix go red by hand:</p>
+<pre><code class="language-sh">PROTODEX_CONFORMANCE_FAULT=digest make conformance CONFORMANCE_VERSIONS=1.57.2
+</code></pre>
+<p>(verified 2026-11-17 with buf 1.57.2: <code>dep-update</code>, <code>build</code>, <code>export</code>, <code>lint</code>,
+<code>breaking</code> and <code>generate</code> fail; <code>login</code>, <code>module</code>, <code>push</code> and <code>labels</code> do not
+read digests back and pass.)</p>
+<h2 id="golden-fixtures">Golden fixtures</h2>
+<p>The traffic-capture harness (<code>test/capture</code>, #3) has not produced committed
+fixtures yet (<code>docs/behavior-spec/rpc-matrix.md</code> is unpopulated and there is
+no <code>test/fixtures/</code>), so the suite checks behaviour end to end instead of
+comparing RPC traffic against recordings. Once fixtures exist, they can be
+asserted from the request log the harness already keeps.</p>
+<h2 id="observed-cli-behaviour">Observed CLI behaviour</h2>
+<ul>
+<li><code>buf push --label=X</code> moves only <code>X</code>, not the default label; the first push
+  without <code>--label</code> sets the default label.</li>
+<li><code>buf registry login &lt;host:port&gt; --token-stdin</code> writes an entry for the
+  host (without the port) to <code>$HOME/.netrc</code>, which later commands use when
+  <code>BUF_TOKEN</code> is unset.</li>
+<li>The CLI verifies downloaded module content against the b5 digest the
+  server reported, so a wrong digest fails <code>dep update</code> and <code>build</code> with
+  <code>Digest verification failed</code>, and with them every scenario that reads a
+  pushed module back.</li>
+<li><code>buf registry label ...</code> (1.40 line) became <code>buf registry module label ...</code>
+  later; the old path still exists, hidden, in 1.57.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": [], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>
