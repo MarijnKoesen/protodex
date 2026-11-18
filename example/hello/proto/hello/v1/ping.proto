@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package hello.v1;
+
+// Ping is a minimal message published to the registry.
+message Ping {
+  // Message is free text.
+  string message = 1;
+}
