@@ -1,0 +1,10 @@
+version: v2
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: gen
+  - remote: buf.build/connectrpc/es:v1.4.0
+    out: gen-ts
+  - remote: buf.build/some/unknown
+    out: x
+  - local: protoc-gen-go-grpc
+    out: gen

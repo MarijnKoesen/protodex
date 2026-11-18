@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -324,5 +325,31 @@ func TestContributorCommand(t *testing.T) {
 	}
 	if out, err := run("list", "-db", db, "acme/api"); err != nil || strings.Contains(out, "alice") {
 		t.Fatalf("list after remove: %q %v", out, err)
+	}
+}
+
+func TestMigrateBufCommand(t *testing.T) {
+	dir := t.TempDir()
+	buf := filepath.Join(dir, "buf.yaml")
+	if err := os.WriteFile(buf, []byte("version: v2\ndeps:\n  - buf.build/googleapis/googleapis\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if err := run(context.Background(), []string{"migrate-buf", "-to", "reg.example.com", dir}, &out, &errOut); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Clean(buf)); !strings.Contains(string(b), "buf.build/") || !strings.Contains(out.String(), "dry run") { //nolint:gosec // test path
+		t.Fatalf("dry run changed files or lacks notice: %s", out.String())
+	}
+	out.Reset()
+	// -skip-dep-update avoids needing a buf binary.
+	if err := run(context.Background(), []string{"migrate-buf", "-to", "reg.example.com", "-apply", "-skip-dep-update", dir}, &out, &errOut); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Clean(buf)); !strings.Contains(string(b), "reg.example.com/googleapis") { //nolint:gosec // test path
+		t.Fatalf("not rewritten: %s", b)
+	}
+	if err := run(context.Background(), []string{"migrate-buf", dir}, &out, &errOut); err == nil {
+		t.Fatal("want error without -to")
 	}
 }

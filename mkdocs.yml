@@ -1,0 +1,44 @@
+site_name: Protodex
+site_description: Self-hostable Protobuf schema registry compatible with the buf CLI
+repo_url: https://github.com/MarijnKoesen/protodex
+edit_uri: edit/main/docs/
+strict: true
+theme:
+  name: material
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Migration from buf.build: migration.md
+  - Reference:
+      - Configuration: configuration.md
+      - Operations: operations.md
+      - Security: security.md
+      - buf CLI compatibility: compatibility.md
+      - Modules and labels: modules.md
+      - Push: push.md
+      - Reads (build, export): reads.md
+      - Owners: owners.md
+      - Permissions: permissions.md
+      - Mirroring: mirror.md
+      - Garbage collection: gc.md
+      - Observability: observability.md
+      - Web UI: webui.md
+  - FAQ and non-goals: faq.md
+  - Project:
+      - Threat model: threat-model.md
+      - Security checklist: security-checklist.md
+      - Mirror licenses: mirror-licenses.md
+      - Branch protection: branch-protection.md
+      - ADR 0001 naming: adr/0001-naming-and-addressing.md
+      - ADR 0002 policy APIs: adr/0002-policy-apis-and-breaking-change-gates.md
+      - Behavior spec:
+          - Overview: behavior-spec/README.md
+          - Open questions: behavior-spec/open-questions.md
+          - RPC matrix: behavior-spec/rpc-matrix.md
+          - RPC matrix header: behavior-spec/rpc-matrix.header.md
+  - Roadmap: plan.html

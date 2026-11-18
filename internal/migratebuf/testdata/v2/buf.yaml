@@ -1,0 +1,10 @@
+version: v2
+modules:
+  - path: proto
+    name: buf.build/acme/api
+deps:
+  - buf.build/googleapis/googleapis # keep comment
+  - "buf.build/grpc-ecosystem/grpc-gateway:main"
+  - other.example.com/x/y
+lint:
+  use: [STANDARD]

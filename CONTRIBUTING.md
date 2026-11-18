@@ -107,6 +107,7 @@ pass. See [docs/branch-protection.md](docs/branch-protection.md).
 | `dependency-review` | ci       | PR dependency checks (private repos require opt-in; see branch-protection.md) |
 | `dco`               | pr       | every commit has `Signed-off-by`                                 |
 | `pr-title`          | pr       | PR title follows Conventional Commits                            |
+| `docs`              | ci       | `make docs`: mkdocs build with `--strict` (broken internal links fail) |
 
 If you rename a job, update this table and the branch protection settings
 in the same PR.

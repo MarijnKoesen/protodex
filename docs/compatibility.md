@@ -1,7 +1,7 @@
 # buf CLI compatibility
 
 Protodex is tested against released `buf` CLI binaries by the conformance
-suite in [`test/conformance`](../test/conformance). Each scenario starts a
+suite in [`test/conformance`](https://github.com/MarijnKoesen/protodex/blob/main/test/conformance). Each scenario starts a
 fresh protodex (ephemeral store + filesystem blob store, a bootstrapped
 `admin` token, organization `acme`) over TLS and drives the real CLI.
 
@@ -68,7 +68,7 @@ PROTODEX_CONFORMANCE_BUF=/usr/local/bin/buf go test ./test/conformance/   # your
 
 Without any of these settings the suite uses `PROTODEX_TEST_BUF` or `buf` on
 `PATH`, and **skips** if neither exists, so `go test ./...` never needs the
-network. Settings (see also the [package doc](../test/conformance/doc.go)):
+network. Settings (see also the [package doc](https://github.com/MarijnKoesen/protodex/blob/main/test/conformance/doc.go)):
 
 | Variable | Meaning |
 |----------|---------|
@@ -86,12 +86,12 @@ Test names are `TestConformance/<backend>/buf-<version>/<scenario>`, so
 
 `go run ./test/conformance/cmd/fetchbuf get 1.75.0` (used by the suite)
 downloads `buf-<OS>-<arch>` from the GitHub release and refuses it unless its
-SHA-256 matches [`bufdl/checksums.txt`](../test/conformance/bufdl/checksums.txt),
+SHA-256 matches [`bufdl/checksums.txt`](https://github.com/MarijnKoesen/protodex/blob/main/test/conformance/bufdl/checksums.txt),
 which is committed. To add a release:
 
 1. `go run ./test/conformance/cmd/fetchbuf pin 1.76.0` (records the release's
    published `sha256.txt` entries for Linux/macOS, x86_64/arm64).
-2. Add the version to [`bufdl/versions.txt`](../test/conformance/bufdl/versions.txt)
+2. Add the version to [`bufdl/versions.txt`](https://github.com/MarijnKoesen/protodex/blob/main/test/conformance/bufdl/versions.txt)
    (mark it `pr` if it becomes the latest; move the marker off the old one).
 3. `make conformance CONFORMANCE_VERSIONS=1.76.0`, then update the table above.
 
@@ -105,7 +105,7 @@ error responses.
 ## Store backends
 
 The suite is parametrised by metadata store backend
-([`backend_test.go`](../test/conformance/backend_test.go)). SQLite is the
+([`backend_test.go`](https://github.com/MarijnKoesen/protodex/blob/main/test/conformance/backend_test.go)). SQLite is the
 only one today. A new backend (Postgres, #23) registers a `Backend` from an
 `init` function in `test/conformance/backend_<name>_test.go`, with a `Skip`
 func that opts out when its database is not configured (for example no DSN
