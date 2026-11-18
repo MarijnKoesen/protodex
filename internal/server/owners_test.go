@@ -170,9 +170,70 @@ func TestUserService(t *testing.T) {
 	}}))
 	wantCode(t, err, connect.CodeUnimplemented)
 
-	// Users are administered with `protodex owner`, not over the API.
+}
+
+func TestUserAdministration(t *testing.T) {
+	e := newAuthEnv(t)
+	ctx := context.Background()
+	org := mustOwner(t, e.st, owner.Organization, "acme")
+	c := ownerv1connect.NewUserServiceClient(http.DefaultClient, e.url, bearer(e.secret))
+	ref := func(name string) []*ownerv1.UserRef {
+		return []*ownerv1.UserRef{{Value: &ownerv1.UserRef_Name{Name: name}}}
+	}
+
+	created, err := c.CreateUsers(ctx, connect.NewRequest(&ownerv1.CreateUsersRequest{Values: []*ownerv1.CreateUsersRequest_Value{
+		{Name: "eve", Description: "hi", Url: "https://example.com"}}}))
+	if err != nil || created.Msg.GetUsers()[0].GetName() != "eve" || created.Msg.GetUsers()[0].GetDescription() != "hi" {
+		t.Fatalf("CreateUsers = %v, %v", created, err)
+	}
 	_, err = c.CreateUsers(ctx, connect.NewRequest(&ownerv1.CreateUsersRequest{Values: []*ownerv1.CreateUsersRequest_Value{{Name: "eve"}}}))
+	wantCode(t, err, connect.CodeAlreadyExists)
+	_, err = c.CreateUsers(ctx, connect.NewRequest(&ownerv1.CreateUsersRequest{Values: []*ownerv1.CreateUsersRequest_Value{{Name: "acme"}}}))
+	wantCode(t, err, connect.CodeAlreadyExists)
+	_, err = c.CreateUsers(ctx, connect.NewRequest(&ownerv1.CreateUsersRequest{Values: []*ownerv1.CreateUsersRequest_Value{{Name: "Bad_Name"}}}))
+	wantCode(t, err, connect.CodeInvalidArgument)
+	// All or nothing.
+	_, err = c.CreateUsers(ctx, connect.NewRequest(&ownerv1.CreateUsersRequest{Values: []*ownerv1.CreateUsersRequest_Value{{Name: "zed"}, {Name: "eve"}}}))
+	wantCode(t, err, connect.CodeAlreadyExists)
+	if _, err := e.st.GetOwner(ctx, "zed"); err == nil {
+		t.Fatal("zed created despite failed batch")
+	}
+
+	desc := "new"
+	up, err := c.UpdateUsers(ctx, connect.NewRequest(&ownerv1.UpdateUsersRequest{Values: []*ownerv1.UpdateUsersRequest_Value{
+		{UserRef: ref("eve")[0], Description: &desc}}}))
+	if err != nil || up.Msg.GetUsers()[0].GetDescription() != "new" || up.Msg.GetUsers()[0].GetUrl() != "https://example.com" {
+		t.Fatalf("UpdateUsers = %v, %v", up, err)
+	}
+	inactive := ownerv1.UserState_USER_STATE_INACTIVE
+	_, err = c.UpdateUsers(ctx, connect.NewRequest(&ownerv1.UpdateUsersRequest{Values: []*ownerv1.UpdateUsersRequest_Value{
+		{UserRef: ref("eve")[0], State: &inactive}}}))
 	wantCode(t, err, connect.CodeUnimplemented)
+
+	// Deleting: not yourself, not a user who owns modules, not an org.
+	_, err = c.DeleteUsers(ctx, connect.NewRequest(&ownerv1.DeleteUsersRequest{UserRefs: ref("admin")}))
+	wantCode(t, err, connect.CodeFailedPrecondition)
+	_, err = c.DeleteUsers(ctx, connect.NewRequest(&ownerv1.DeleteUsersRequest{UserRefs: ref("acme")}))
+	wantCode(t, err, connect.CodeNotFound)
+	eve, _ := e.st.GetOwner(ctx, "eve")
+	if _, err := e.st.CreateModule(ctx, store.Module{OwnerID: eve.ID, Name: "m", Visibility: store.VisibilityPrivate, DefaultLabel: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.DeleteUsers(ctx, connect.NewRequest(&ownerv1.DeleteUsersRequest{UserRefs: ref("eve")}))
+	wantCode(t, err, connect.CodeFailedPrecondition)
+	m, _ := e.st.GetModule(ctx, eve.ID, "m")
+	if err := e.st.DeleteModule(ctx, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.DeleteUsers(ctx, connect.NewRequest(&ownerv1.DeleteUsersRequest{UserRefs: ref("eve")})); err != nil {
+		t.Fatalf("DeleteUsers: %v", err)
+	}
+	if _, err := e.st.GetOwner(ctx, "eve"); err == nil {
+		t.Fatal("eve still exists")
+	}
+	if _, err := e.st.GetOwnerByID(ctx, org.ID); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestOrganizationService(t *testing.T) {
@@ -210,10 +271,61 @@ func TestOrganizationService(t *testing.T) {
 	}}))
 	wantCode(t, err, connect.CodeUnimplemented)
 
-	// Writes need a token and stay unimplemented (administered via the CLI).
+	// Writes need an admin token.
 	_, err = c.CreateOrganizations(ctx, connect.NewRequest(&ownerv1.CreateOrganizationsRequest{Values: []*ownerv1.CreateOrganizationsRequest_Value{{Name: "x"}}}))
 	wantCode(t, err, connect.CodeUnauthenticated)
-	_, err = ownerv1connect.NewOrganizationServiceClient(http.DefaultClient, e.url, bearer(e.secret)).
-		CreateOrganizations(ctx, connect.NewRequest(&ownerv1.CreateOrganizationsRequest{Values: []*ownerv1.CreateOrganizationsRequest_Value{{Name: "x"}}}))
+}
+
+func TestOrganizationAdministration(t *testing.T) {
+	e := newAuthEnv(t)
+	ctx := context.Background()
+	mustOwner(t, e.st, owner.Mirror, "googleapis")
+	c := ownerv1connect.NewOrganizationServiceClient(http.DefaultClient, e.url, bearer(e.secret))
+	ref := func(name string) []*ownerv1.OrganizationRef {
+		return []*ownerv1.OrganizationRef{{Value: &ownerv1.OrganizationRef_Name{Name: name}}}
+	}
+
+	created, err := c.CreateOrganizations(ctx, connect.NewRequest(&ownerv1.CreateOrganizationsRequest{Values: []*ownerv1.CreateOrganizationsRequest_Value{
+		{Name: "acme", Description: "Acme Inc", Url: "https://acme.example"}}}))
+	if err != nil || created.Msg.GetOrganizations()[0].GetDescription() != "Acme Inc" {
+		t.Fatalf("CreateOrganizations = %v, %v", created, err)
+	}
+	for _, name := range []string{"acme", "admin", "googleapis"} {
+		_, err = c.CreateOrganizations(ctx, connect.NewRequest(&ownerv1.CreateOrganizationsRequest{Values: []*ownerv1.CreateOrganizationsRequest_Value{{Name: name}}}))
+		wantCode(t, err, connect.CodeAlreadyExists)
+	}
+	private := ownerv1.OrganizationVisibility_ORGANIZATION_VISIBILITY_PRIVATE
+	_, err = c.CreateOrganizations(ctx, connect.NewRequest(&ownerv1.CreateOrganizationsRequest{Values: []*ownerv1.CreateOrganizationsRequest_Value{{Name: "p", Visibility: &private}}}))
 	wantCode(t, err, connect.CodeUnimplemented)
+
+	url := "https://new.example"
+	up, err := c.UpdateOrganizations(ctx, connect.NewRequest(&ownerv1.UpdateOrganizationsRequest{Values: []*ownerv1.UpdateOrganizationsRequest_Value{
+		{OrganizationRef: ref("acme")[0], Url: &url}}}))
+	if err != nil || up.Msg.GetOrganizations()[0].GetUrl() != url || up.Msg.GetOrganizations()[0].GetDescription() != "Acme Inc" {
+		t.Fatalf("UpdateOrganizations = %v, %v", up, err)
+	}
+	_, err = c.UpdateOrganizations(ctx, connect.NewRequest(&ownerv1.UpdateOrganizationsRequest{Values: []*ownerv1.UpdateOrganizationsRequest_Value{
+		{OrganizationRef: ref("googleapis")[0], Url: &url}}}))
+	wantCode(t, err, connect.CodeFailedPrecondition)
+
+	// Mirrors and organizations with modules cannot be deleted.
+	_, err = c.DeleteOrganizations(ctx, connect.NewRequest(&ownerv1.DeleteOrganizationsRequest{OrganizationRefs: ref("googleapis")}))
+	wantCode(t, err, connect.CodeFailedPrecondition)
+	acme, _ := e.st.GetOwner(ctx, "acme")
+	mod, err := e.st.CreateModule(ctx, store.Module{OwnerID: acme.ID, Name: "m", Visibility: store.VisibilityPrivate, DefaultLabel: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.DeleteOrganizations(ctx, connect.NewRequest(&ownerv1.DeleteOrganizationsRequest{OrganizationRefs: ref("acme")}))
+	wantCode(t, err, connect.CodeFailedPrecondition)
+	_, err = c.DeleteOrganizations(ctx, connect.NewRequest(&ownerv1.DeleteOrganizationsRequest{OrganizationRefs: ref("admin")}))
+	wantCode(t, err, connect.CodeNotFound)
+	if err := e.st.DeleteModule(ctx, mod.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.DeleteOrganizations(ctx, connect.NewRequest(&ownerv1.DeleteOrganizationsRequest{OrganizationRefs: ref("acme")})); err != nil {
+		t.Fatalf("DeleteOrganizations: %v", err)
+	}
+	_, err = c.DeleteOrganizations(ctx, connect.NewRequest(&ownerv1.DeleteOrganizationsRequest{OrganizationRefs: ref("acme")}))
+	wantCode(t, err, connect.CodeNotFound)
 }

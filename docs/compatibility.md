@@ -14,22 +14,22 @@ fresh protodex (ephemeral store + filesystem blob store, a bootstrapped
 Result of the full matrix on the SQLite backend (2026-11-17, linux/amd64,
 `make conformance CONFORMANCE_VERSIONS=all`):
 
-| backend | buf | login | module | push | labels | dep-update | build | export | lint | breaking | generate |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| sqlite | 1.32.2 | pass | n/a | pass | n/a | pass | pass | pass | pass | pass | pass |
-| sqlite | 1.35.1 | pass | n/a | pass | n/a | pass | pass | pass | pass | pass | pass |
-| sqlite | 1.40.1 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
-| sqlite | 1.45.0 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
-| sqlite | 1.50.1 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
-| sqlite | 1.55.1 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
-| sqlite | 1.57.2 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
-| sqlite | 1.60.0 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
-| sqlite | 1.65.0 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
-| sqlite | 1.70.0 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
-| sqlite | 1.75.0 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
+| backend | buf | login | module | organization | push | labels | dep-update | build | export | lint | breaking | generate |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| sqlite | 1.32.2 | pass | n/a | n/a | pass | n/a | pass | pass | pass | pass | pass | pass |
+| sqlite | 1.35.1 | pass | n/a | n/a | pass | n/a | pass | pass | pass | pass | pass | pass |
+| sqlite | 1.40.1 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
+| sqlite | 1.45.0 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
+| sqlite | 1.50.1 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
+| sqlite | 1.55.1 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
+| sqlite | 1.57.2 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
+| sqlite | 1.60.0 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
+| sqlite | 1.65.0 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
+| sqlite | 1.70.0 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
+| sqlite | 1.75.0 | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
 
-`n/a`: the CLI version has no such command (`buf registry module ...` and
-label commands arrived in the 1.40 line). On those versions the other
+`n/a`: the CLI version has no such command (`buf registry module ...`,
+`buf registry organization ...` and label commands arrived in the 1.40 line). On those versions the other
 scenarios create modules directly in the store instead.
 
 **Minimum supported version: 1.32.2** (the first CLI line with v2
@@ -44,6 +44,7 @@ from its job summaries when it changes.
 |----------|-------------------|
 | `login` | unauthenticated `push` is refused; `registry login --token-stdin` writes `.netrc`; `registry whoami` (where available); `push` with the stored credentials; `registry logout`; push refused again |
 | `module` | `registry module create` / `info --format=json` / duplicate create (`already exists`) / `settings update` (or `update`) / `deprecate` / `undeprecate` / `delete` |
+| `organization` | `registry organization create` / duplicate create and clash with an existing owner fail / `info --format=json` / `update --description --url` / `delete` is refused while the organization owns a module, then works |
 | `push` | push, idempotent re-push, `--label`, changed content → new commit, `commit info`, push to a missing module fails |
 | `labels` | `label list`, `info`, `archive` (hidden from list, shown with `--archive-status=archived`), default label cannot be archived, `unarchive` |
 | `dep-update` | `dep update` writes commit + b5 digest to `buf.lock`; a new upstream commit is picked up; build from a cold cache; push records the dep; remote build includes it |
@@ -56,6 +57,28 @@ from its job summaries when it changes.
 Each scenario adapts to the CLI by probing `buf <command> --help`, not by
 hard-coded version ranges, except the lint category: `STANDARD` from 1.40,
 `DEFAULT` before.
+
+## `buf registry` command support
+
+Every `buf registry` subcommand that talks to the registry API, as of buf
+1.75.0:
+
+| Command | Status |
+|---------|--------|
+| `login`, `logout`, `whoami` | supported (`login`, `whoami` scenarios) |
+| `module create`, `info`, `update` / `settings update`, `deprecate`, `undeprecate`, `delete` | supported (`module` scenario) |
+| `module label list`, `info`, `archive`, `unarchive` | supported (`labels` scenario) |
+| `module commit info` | supported (`push` scenario) |
+| `module commit list`, `resolve`, `add-label` | served by implemented RPCs (`ListCommits`, `GetCommits`, `CreateOrUpdateLabels`) but not covered by a scenario yet |
+| `organization create`, `info`, `update` (`--description`, `--url`), `delete` | supported (`organization` scenario). Instance admins only. `delete` is refused while the organization owns modules, and for mirror owners |
+| `plugin ...`, `policy ...`, `sdk ...` | **not supported**: protodex implements no plugin, policy or generated-SDK services; the CLI gets `unimplemented` |
+| `cc` | local only (clears the CLI cache) |
+
+There is no `buf registry user` or member command: users are provisioned by
+an instance admin (`UserService.CreateUsers` / `DeleteUsers`, or
+`protodex owner`) or through OIDC, and organization membership and
+organization settings (`GetOrganizationSettings`, `UpdateOrganizationSettings`)
+are not modeled (see [owners.md](owners.md)).
 
 ## Running it
 

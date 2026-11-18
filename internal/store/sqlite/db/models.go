@@ -90,13 +90,15 @@ type ModuleContributor struct {
 }
 
 type Owner struct {
-	ID        string
-	Name      string
-	Type      string
-	CreatedAt int64
-	Mirror    int64
-	UpdatedAt int64
-	Role      string
+	ID          string
+	Name        string
+	Type        string
+	CreatedAt   int64
+	Mirror      int64
+	UpdatedAt   int64
+	Role        string
+	Description string
+	Url         string
 }
 
 type Token struct {

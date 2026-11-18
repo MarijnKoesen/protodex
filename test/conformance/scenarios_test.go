@@ -3,10 +3,13 @@
 package conformance
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/marijnkoesen/protodex/internal/store"
 )
 
 // Scenario is one end-to-end CLI flow. Each runs on a fresh server.
@@ -21,6 +24,7 @@ type Scenario struct {
 var scenarios = []Scenario{
 	{Name: "login", Run: scenarioLogin},
 	{Name: "module", Needs: needs("registry", "module", "create"), Run: scenarioModule},
+	{Name: "organization", Needs: needs("registry", "organization", "create"), Run: scenarioOrganization},
 	{Name: "push", Run: scenarioPush},
 	{Name: "labels", Needs: needsLabels, Run: scenarioLabels},
 	{Name: "dep-update", Run: scenarioDepUpdate},
@@ -166,6 +170,43 @@ func scenarioModule(t T, e *Env) {
 	e.OK("", "registry", "module", "undeprecate", mod)
 	e.OK("", "registry", "module", "delete", mod, "--force")
 	e.Fails("", "registry", "module", "info", mod)
+}
+
+func scenarioOrganization(t T, e *Env) {
+	ctx := context.Background()
+	org := e.Host + "/platform"
+	e.OK("", "registry", "organization", "create", org)
+	o, err := e.St.GetOwner(ctx, "platform")
+	if err != nil || o.Type != store.OwnerOrganization {
+		t.Fatalf("stored organization = %+v, %v", o, err)
+	}
+	mustContain(t, "duplicate create", e.Fails("", "registry", "organization", "create", org), "already used")
+	// An organization may not shadow an existing owner (the bootstrap user).
+	e.Fails("", "registry", "organization", "create", e.Host+"/admin")
+
+	var info map[string]any
+	out := e.OK("", "registry", "organization", "info", org, "--format=json")
+	if err := json.Unmarshal([]byte(out), &info); err != nil || info["name"] != "platform" {
+		t.Fatalf("organization info = %v, %v\n%s", info, err, out)
+	}
+	e.Fails("", "registry", "organization", "info", e.Host+"/nope")
+
+	e.OK("", "registry", "organization", "update", org, "--description=platform team", "--url=https://platform.example")
+	if o, _ := e.St.GetOwner(ctx, "platform"); o.Description != "platform team" || o.URL != "https://platform.example" {
+		t.Fatalf("stored organization after update = %+v", o)
+	}
+
+	// An organization that owns a module cannot be deleted until the module is.
+	if e.cli.has("registry", "module", "create") {
+		e.OK("", "registry", "module", "create", org+"/tools")
+		mustContain(t, "delete with modules", e.Fails("", "registry", "organization", "delete", org, "--force"), "module")
+		e.OK("", "registry", "module", "delete", org+"/tools", "--force")
+	}
+	e.OK("", "registry", "organization", "delete", org, "--force")
+	if _, err := e.St.GetOwner(ctx, "platform"); err == nil {
+		t.Fatalf("organization still stored after delete")
+	}
+	e.Fails("", "registry", "organization", "info", org)
 }
 
 func scenarioPush(t T, e *Env) {

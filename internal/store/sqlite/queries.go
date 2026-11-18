@@ -105,7 +105,7 @@ func mapAll[A, B any](in []A, err error, f func(A) B) ([]B, error) {
 
 func ownerFrom(o db.Owner) store.Owner {
 	return store.Owner{ID: o.ID, Name: o.Name, Type: o.Type, Mirror: o.Mirror != 0, Role: o.Role,
-		CreatedAt: fromTS(o.CreatedAt), UpdatedAt: fromTS(o.UpdatedAt)}
+		Description: o.Description, URL: o.Url, CreatedAt: fromTS(o.CreatedAt), UpdatedAt: fromTS(o.UpdatedAt)}
 }
 
 func (q *queries) CreateOwner(ctx context.Context, o store.Owner) (store.Owner, error) {
@@ -121,6 +121,7 @@ func (q *queries) CreateOwner(ctx context.Context, o store.Owner) (store.Owner, 
 		o.Role = store.RoleMember
 	}
 	err := q.w.CreateOwner(ctx, db.CreateOwnerParams{ID: o.ID, Name: o.Name, Type: o.Type, Mirror: b2i(o.Mirror), Role: o.Role,
+		Description: o.Description, Url: o.URL,
 		CreatedAt: o.CreatedAt.UnixMicro(), UpdatedAt: o.UpdatedAt.UnixMicro()})
 	return o, mapErr(err)
 }
@@ -158,6 +159,22 @@ func (q *queries) RenameOwner(ctx context.Context, id, newName string) (store.Ow
 
 func (q *queries) SetOwnerRole(ctx context.Context, id, role string) error {
 	return existing(q.w.SetOwnerRole(ctx, db.SetOwnerRoleParams{Role: role, UpdatedAt: ts(time.Time{}).UnixMicro(), ID: id}))
+}
+
+// SetOwnerProfile stores the description and URL of an owner.
+func (q *queries) SetOwnerProfile(ctx context.Context, id, description, url string) (store.Owner, error) {
+	if err := existing(q.w.SetOwnerProfile(ctx, db.SetOwnerProfileParams{Description: description, Url: url,
+		UpdatedAt: ts(time.Time{}).UnixMicro(), ID: id})); err != nil {
+		return store.Owner{}, err
+	}
+	o, err := q.w.GetOwnerByID(ctx, id)
+	return ownerFrom(o), mapErr(err)
+}
+
+// DeleteOwner removes the owner with its tokens, identities and contributor
+// grants (all cascade). An owner that still owns modules is ErrConflict.
+func (q *queries) DeleteOwner(ctx context.Context, id string) error {
+	return existing(q.w.DeleteOwner(ctx, id))
 }
 
 // --- module contributors ---

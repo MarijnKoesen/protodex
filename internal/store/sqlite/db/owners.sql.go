@@ -10,17 +10,19 @@ import (
 )
 
 const createOwner = `-- name: CreateOwner :exec
-INSERT INTO owners (id, name, type, mirror, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO owners (id, name, type, mirror, role, description, url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateOwnerParams struct {
-	ID        string
-	Name      string
-	Type      string
-	Mirror    int64
-	Role      string
-	CreatedAt int64
-	UpdatedAt int64
+	ID          string
+	Name        string
+	Type        string
+	Mirror      int64
+	Role        string
+	Description string
+	Url         string
+	CreatedAt   int64
+	UpdatedAt   int64
 }
 
 func (q *Queries) CreateOwner(ctx context.Context, arg CreateOwnerParams) error {
@@ -30,14 +32,28 @@ func (q *Queries) CreateOwner(ctx context.Context, arg CreateOwnerParams) error 
 		arg.Type,
 		arg.Mirror,
 		arg.Role,
+		arg.Description,
+		arg.Url,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
 	return err
 }
 
+const deleteOwner = `-- name: DeleteOwner :execrows
+DELETE FROM owners WHERE id = ?
+`
+
+func (q *Queries) DeleteOwner(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteOwner, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getOwner = `-- name: GetOwner :one
-SELECT id, name, type, created_at, mirror, updated_at, role FROM owners WHERE name = ?
+SELECT id, name, type, created_at, mirror, updated_at, role, description, url FROM owners WHERE name = ?
 `
 
 func (q *Queries) GetOwner(ctx context.Context, name string) (Owner, error) {
@@ -51,12 +67,14 @@ func (q *Queries) GetOwner(ctx context.Context, name string) (Owner, error) {
 		&i.Mirror,
 		&i.UpdatedAt,
 		&i.Role,
+		&i.Description,
+		&i.Url,
 	)
 	return i, err
 }
 
 const getOwnerByID = `-- name: GetOwnerByID :one
-SELECT id, name, type, created_at, mirror, updated_at, role FROM owners WHERE id = ?
+SELECT id, name, type, created_at, mirror, updated_at, role, description, url FROM owners WHERE id = ?
 `
 
 func (q *Queries) GetOwnerByID(ctx context.Context, id string) (Owner, error) {
@@ -70,12 +88,14 @@ func (q *Queries) GetOwnerByID(ctx context.Context, id string) (Owner, error) {
 		&i.Mirror,
 		&i.UpdatedAt,
 		&i.Role,
+		&i.Description,
+		&i.Url,
 	)
 	return i, err
 }
 
 const listOwners = `-- name: ListOwners :many
-SELECT id, name, type, created_at, mirror, updated_at, role FROM owners ORDER BY name
+SELECT id, name, type, created_at, mirror, updated_at, role, description, url FROM owners ORDER BY name
 `
 
 func (q *Queries) ListOwners(ctx context.Context) ([]Owner, error) {
@@ -95,6 +115,8 @@ func (q *Queries) ListOwners(ctx context.Context) ([]Owner, error) {
 			&i.Mirror,
 			&i.UpdatedAt,
 			&i.Role,
+			&i.Description,
+			&i.Url,
 		); err != nil {
 			return nil, err
 		}
@@ -121,6 +143,30 @@ type RenameOwnerParams struct {
 
 func (q *Queries) RenameOwner(ctx context.Context, arg RenameOwnerParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, renameOwner, arg.Name, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setOwnerProfile = `-- name: SetOwnerProfile :execrows
+UPDATE owners SET description = ?, url = ?, updated_at = ? WHERE id = ?
+`
+
+type SetOwnerProfileParams struct {
+	Description string
+	Url         string
+	UpdatedAt   int64
+	ID          string
+}
+
+func (q *Queries) SetOwnerProfile(ctx context.Context, arg SetOwnerProfileParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setOwnerProfile,
+		arg.Description,
+		arg.Url,
+		arg.UpdatedAt,
+		arg.ID,
+	)
 	if err != nil {
 		return 0, err
 	}

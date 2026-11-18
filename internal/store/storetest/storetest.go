@@ -22,6 +22,7 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 		"OwnersAndModules":      testOwnersAndModules,
 		"OwnerUniqueness":       testOwnerUniqueness,
 		"OwnerRename":           testOwnerRename,
+		"OwnerProfileAndDelete": testOwnerProfileAndDelete,
 		"CommitsLabelsDeps":     testCommitsLabelsDeps,
 		"BlobsAndManifests":     testBlobsAndManifests,
 		"Tokens":                testTokens,
@@ -211,6 +212,38 @@ func testOwnerRename(t *testing.T, s store.Store) {
 	if got := must(s.GetOwnerByID(ctx, u.ID)); got.Name != "alice2" {
 		t.Fatalf("rolled-back rename visible: %+v", got)
 	}
+}
+
+func testOwnerProfileAndDelete(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	o, m := seed(t, s)
+	u := must(s.CreateOwner(ctx, store.Owner{Name: "alice", Type: store.OwnerUser, Description: "d", URL: "https://x.example"}))
+	if got := must(s.GetOwnerByID(ctx, u.ID)); got.Description != "d" || got.URL != "https://x.example" {
+		t.Fatalf("profile not stored: %+v", got)
+	}
+	up := must(s.SetOwnerProfile(ctx, u.ID, "d2", ""))
+	if up.Description != "d2" || up.URL != "" {
+		t.Fatalf("SetOwnerProfile = %+v", up)
+	}
+	_, err := s.SetOwnerProfile(ctx, "missing", "", "")
+	is(t, err, store.ErrNotFound)
+
+	tok := must(s.CreateToken(ctx, store.Token{OwnerID: u.ID, Name: "t", Hash: "h"}))
+	must(s.SetModuleContributor(ctx, store.ModuleContributor{ModuleID: m.ID, UserID: u.ID, Role: store.ContributorRead}))
+	// An owner with modules cannot be deleted.
+	is(t, s.DeleteOwner(ctx, o.ID), store.ErrConflict)
+	if err := s.DeleteOwner(ctx, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.GetOwnerByID(ctx, u.ID)
+	is(t, err, store.ErrNotFound)
+	_, err = s.GetTokenByHash(ctx, tok.Hash)
+	is(t, err, store.ErrNotFound)
+	if cs := must(s.ListModuleContributors(ctx, m.ID)); len(cs) != 0 {
+		t.Fatalf("contributor grants survived: %+v", cs)
+	}
+	is(t, s.DeleteOwner(ctx, u.ID), store.ErrNotFound)
+	must(s.CreateOwner(ctx, store.Owner{Name: "alice", Type: store.OwnerUser}))
 }
 
 func testCommitsLabelsDeps(t *testing.T, s store.Store) {

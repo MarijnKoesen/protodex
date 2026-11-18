@@ -20,8 +20,7 @@ import (
 )
 
 // The owner services resolve the owner part of `<host>/<owner>/<module>`
-// names. Owners are administered with the `protodex owner` command, so the
-// create, update and delete RPCs stay unimplemented.
+// names. Instance admins also manage them over the API (owners_admin.go).
 
 func userProto(o store.Owner) *ownerv1.User {
 	return &ownerv1.User{
@@ -29,6 +28,8 @@ func userProto(o store.Owner) *ownerv1.User {
 		CreateTime:         timestamppb.New(o.CreatedAt),
 		UpdateTime:         timestamppb.New(o.UpdatedAt),
 		Name:               o.Name,
+		Description:        o.Description,
+		Url:                o.URL,
 		Type:               ownerv1.UserType_USER_TYPE_STANDARD,
 		State:              ownerv1.UserState_USER_STATE_ACTIVE,
 		VerificationStatus: ownerv1.UserVerificationStatus_USER_VERIFICATION_STATUS_UNVERIFIED,
@@ -51,6 +52,8 @@ func organizationProto(o store.Owner) *ownerv1.Organization {
 		CreateTime:         timestamppb.New(o.CreatedAt),
 		UpdateTime:         timestamppb.New(o.UpdatedAt),
 		Name:               o.Name,
+		Description:        o.Description,
+		Url:                o.URL,
 		VerificationStatus: ownerv1.OrganizationVerificationStatus_ORGANIZATION_VERIFICATION_STATUS_UNVERIFIED,
 		Visibility:         ownerv1.OrganizationVisibility_ORGANIZATION_VISIBILITY_PUBLIC,
 	}
