@@ -1,0 +1,3 @@
+# Produced by `buf dep update` / `buf generate`; see README.md.
+buf.lock
+gen/

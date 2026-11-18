@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package app.v1;
+
+import "hello/v1/ping.proto";
+
+// Request wraps the Ping message from the hello module.
+message Request {
+  // Ping comes from localhost:8443/acme/hello.
+  hello.v1.Ping ping = 1;
+}

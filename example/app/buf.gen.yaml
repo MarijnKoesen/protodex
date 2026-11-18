@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+version: v2
+managed:
+  enabled: true
+  override:
+    # Go import path for every generated package, including the registry dep.
+    - file_option: go_package_prefix
+      value: example.com/app/gen
+plugins:
+  - local: protoc-gen-go
+    out: gen
+    # Drop the import path prefix: files land in gen/app/v1 and gen/hello/v1.
+    opt: module=example.com/app/gen
+    # Also generate code for the dependency pulled from protodex.
+    include_imports: true
