@@ -26,7 +26,7 @@ in both `buf.yaml` files.
 ## 1. Log in
 
 ```sh
-buf registry login localhost:8443 --token-stdin <<<"$TOKEN"
+buf registry login localhost:8443 --username admin --token-stdin <<<"$TOKEN"
 ```
 
 `$TOKEN` is the token printed by `protodex bootstrap`.
