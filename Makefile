@@ -125,17 +125,29 @@ conformance: ## Run the buf CLI conformance suite (downloads pinned, checksum-ve
 	  $(GO) test -count=1 -timeout 30m ./test/conformance/...
 	@cat conformance-report.md
 
+# Command for `make kind-e2e`: all (default), up, upgrade, conformance,
+# restart, restore, diagnostics or down. See deploy/e2e/README.md.
+E2E_ARGS ?= all
+
+.PHONY: kind-e2e
+kind-e2e: ## Helm chart e2e on kind: conformance, restart, Litestream restore, upgrade (needs docker, kind, kubectl, helm)
+	./deploy/e2e/e2e.sh $(E2E_ARGS)
+
+.PHONY: kind-e2e-down
+kind-e2e-down: ## Delete the kind e2e cluster
+	./deploy/e2e/e2e.sh down
+
 .PHONY: tools
 tools: ## Install golangci-lint at the pinned version
 	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 .PHONY: clean
 clean:
-	rm -rf $(BIN_DIR) coverage.out conformance-report.md
+	rm -rf $(BIN_DIR) coverage.out conformance-report.md .e2e-kind
 
 .PHONY: help
 help:
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "%-18s %s\n", $$1, $$2}'
+	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "%-18s %s\n", $$1, $$2}'
 
 .PHONY: docs
 docs: ## Build the docs site with strict link checking (pip: mkdocs, mkdocs-material)

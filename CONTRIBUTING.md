@@ -109,5 +109,9 @@ pass. See [docs/branch-protection.md](docs/branch-protection.md).
 | `pr-title`          | pr       | PR title follows Conventional Commits                            |
 | `docs`              | ci       | `make docs`: mkdocs build with `--strict` (broken internal links fail) |
 
+Not required yet: `kind-e2e` (Helm chart on kind: conformance, restart,
+restore, upgrade; `make kind-e2e`, see [deploy/e2e](deploy/e2e/README.md)).
+It is safe to require because it reports success on PRs it does not apply to.
+
 If you rename a job, update this table and the branch protection settings
 in the same PR.

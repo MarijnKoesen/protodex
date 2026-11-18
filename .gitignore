@@ -10,3 +10,4 @@ deploy/.env
 /e2e/test-results/
 /e2e/playwright-report/
 /conformance-report.md
+/.e2e-kind/

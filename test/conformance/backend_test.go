@@ -25,6 +25,10 @@ type Backend struct {
 	// fresh temporary directory the backend may use. The suite closes the
 	// store when the test ends.
 	Open func(ctx context.Context, dir string) (store.Store, error)
+	// Remote marks the backend that targets an already running server
+	// (PROTODEX_CONFORMANCE_REMOTE, see remote_test.go) instead of opening a
+	// store; Open is unused.
+	Remote bool
 }
 
 var backends []Backend

@@ -209,6 +209,13 @@ type Env struct {
 	home, cache, certFile string
 	log                   *syncBuffer
 	logger                *slog.Logger
+
+	// api reads and creates registry objects over the Connect API when the
+	// server is remote (St is nil then).
+	api *remoteAPI
+	// suffix makes module names unique on a shared remote server; empty for
+	// the private in-process server.
+	suffix string
 }
 
 // newEnv starts protodex on backend b (with fault injected, if any), creates
@@ -217,6 +224,9 @@ type Env struct {
 // request log is printed.
 func newEnv(t T, cli *bufCLI, b Backend, fault string) *Env {
 	t.Helper()
+	if b.Remote {
+		return newRemoteEnv(t, cli, fault)
+	}
 	ctx := context.Background()
 	dir := t.TempDir()
 	logBuf := &syncBuffer{}
@@ -371,8 +381,17 @@ func (e *Env) Fails(dir string, args ...string) string {
 	return r.Stderr
 }
 
+// Name returns the module name the scenario's module <name> has on the
+// server: <name> itself, or <name>-<suffix> on a shared remote server.
+func (e *Env) Name(name string) string {
+	if e.suffix == "" {
+		return name
+	}
+	return name + "-" + e.suffix
+}
+
 // Mod returns the full remote name of acme/<name>.
-func (e *Env) Mod(name string) string { return e.Host + "/acme/" + name }
+func (e *Env) Mod(name string) string { return e.Host + "/acme/" + e.Name(name) }
 
 // CreateModule creates acme/<name> with the CLI, or through the store when
 // the CLI has no `registry module create` (buf < 1.40).
@@ -382,26 +401,34 @@ func (e *Env) CreateModule(name string) {
 		e.OK("", "registry", "module", "create", e.Mod(name), "--visibility=public")
 		return
 	}
+	if e.api != nil {
+		e.api.createModule(e.t, "acme", e.Name(name))
+		e.t.Logf("buf %s has no `registry module create`; created acme/%s through the API", e.cli.Version, e.Name(name))
+		return
+	}
 	ctx := context.Background()
 	o, err := e.St.GetOwner(ctx, "acme")
 	if err != nil {
 		e.t.Fatalf("get owner: %v", err)
 	}
-	if _, err := e.St.CreateModule(ctx, store.Module{OwnerID: o.ID, Name: name, Visibility: store.VisibilityPublic, DefaultLabel: module.DefaultLabel}); err != nil {
+	if _, err := e.St.CreateModule(ctx, store.Module{OwnerID: o.ID, Name: e.Name(name), Visibility: store.VisibilityPublic, DefaultLabel: module.DefaultLabel}); err != nil {
 		e.t.Fatalf("create module: %v", err)
 	}
-	e.t.Logf("buf %s has no `registry module create`; created acme/%s through the store", e.cli.Version, name)
+	e.t.Logf("buf %s has no `registry module create`; created acme/%s through the store", e.cli.Version, e.Name(name))
 }
 
-// Module reads acme/<name> from the store.
+// Module reads acme/<name> from the store (or the API, when remote).
 func (e *Env) Module(name string) store.Module {
 	e.t.Helper()
+	if e.api != nil {
+		return e.api.module(e.t, "acme", e.Name(name))
+	}
 	ctx := context.Background()
 	o, err := e.St.GetOwner(ctx, "acme")
 	if err != nil {
 		e.t.Fatalf("get owner: %v", err)
 	}
-	m, err := e.St.GetModule(ctx, o.ID, name)
+	m, err := e.St.GetModule(ctx, o.ID, e.Name(name))
 	if err != nil {
 		e.t.Fatalf("get module %s: %v", name, err)
 	}
@@ -484,6 +511,9 @@ func (e *Env) Push(dir string, args ...string) string {
 // LabelCommit returns the stored commit that label of acme/<name> points to.
 func (e *Env) LabelCommit(name, label string) store.Commit {
 	e.t.Helper()
+	if e.api != nil {
+		return e.api.labelCommit(e.t, "acme", e.Name(name), label)
+	}
 	ctx := context.Background()
 	m := e.Module(name)
 	l, err := e.St.GetLabel(ctx, m.ID, label)

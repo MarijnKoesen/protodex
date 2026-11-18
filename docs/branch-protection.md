@@ -23,6 +23,29 @@ Notes:
   belongs to an organization. Personal-account repositories do not.
 - A check only becomes selectable as "required" after it has run once, so
   apply this after the first CI run on a PR.
+- `kind-e2e` (Helm chart e2e on kind, [deploy/e2e](https://github.com/MarijnKoesen/protodex/blob/main/deploy/e2e/README.md))
+  is not in the list yet. Add it once it has proven stable; see below.
+
+## kind-e2e and path filters
+
+The kind e2e takes several minutes, so it only does real work when a PR
+touches `deploy/`, `internal/`, `cmd/`, `test/conformance/`, `go.mod`/`go.sum`,
+the `Dockerfile`, the `Makefile` or its workflow. That filter must **not** be
+a workflow-level `on.pull_request.paths` filter: a workflow skipped that way
+reports no status at all, and a required check that never reports leaves the
+PR "Expected — waiting for status" forever.
+
+Instead `.github/workflows/kind-e2e.yml` runs on every PR. The `kind-e2e` job
+always starts, computes the changed files against the PR base itself and
+skips its remaining steps when none match, so the check still reports
+success. If the change detection itself fails, the job fails (it is a step
+inside the job, not a separate job whose failure would make `kind-e2e`
+"skipped", which GitHub counts as passing).
+
+To make it required, add `{"context": "kind-e2e"}` to the `checks` list
+below. When changing the path list, keep it in the workflow's `changes` step
+(not in `on:`), and keep this section and
+[deploy/e2e/README.md](https://github.com/MarijnKoesen/protodex/blob/main/deploy/e2e/README.md#ci) in sync.
 
 ## Applying it
 

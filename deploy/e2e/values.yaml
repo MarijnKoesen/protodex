@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+# Helm values for the kind e2e (deploy/e2e/e2e.sh). The script sets
+# image.repository/tag to the locally built image. Keep to keys every chart
+# version accepts: the upgrade test installs an older chart with this file.
+image:
+  pullPolicy: Never
+s3:
+  accessKeyId: e2e-access-key
+  secretAccessKey: e2e-secret-key
+seaweedfs:
+  enabled: true
+  image:
+    tag: "3.97"
+  persistence:
+    size: 1Gi
+  volumeSizeLimitMB: 64
+persistence:
+  size: 1Gi
+config:
+  logLevel: debug
+  # Pods are killed with a 1s grace period by the restart test; keep the
+  # graceful rollouts quick too.
+  shutdownTimeout: 5s
+terminationGracePeriodSeconds: 15
+# The conformance suite runs many buf commands in parallel from one IP.
+extraEnv:
+  - name: PROTODEX_RATE_LIMIT_IP_RATE
+    value: "0"
+  - name: PROTODEX_RATE_LIMIT_TOKEN_RATE
+    value: "0"

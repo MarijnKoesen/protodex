@@ -87,7 +87,8 @@ helm install protodex oci://ghcr.io/marijnkoesen/charts/protodex --version X.Y.Z
 ```
 
 See the chart README for install, upgrades, the restore drill and why the
-database must not live on NFS/EFS.
+database must not live on NFS/EFS. [`e2e/`](e2e/README.md) tests the chart on kind (conformance,
+restart, Litestream restore, upgrade): `make kind-e2e`.
 
 ## Container image
 

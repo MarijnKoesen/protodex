@@ -350,6 +350,11 @@ for f in "" deploy/helm/protodex/ci/*-values.yaml; do
 done
 ```
 
-CI (`helm` job in `.github/workflows/ci.yml`) runs the same checks. The
+CI (`helm` job in `.github/workflows/ci.yml`) runs the same checks.
+`make kind-e2e` installs the chart into a kind cluster and runs the buf CLI
+conformance suite, a pod-kill restart test, the restore drill below
+(PVC deleted, Litestream restore from the bundled SeaweedFS) and an upgrade
+from the previous version against it; see
+[`deploy/e2e/README.md`](../../e2e/README.md) (CI job `kind-e2e`). The
 release workflow packages the chart with the tag's version, pushes it to
 `oci://ghcr.io/marijnkoesen/charts` and signs it with cosign.

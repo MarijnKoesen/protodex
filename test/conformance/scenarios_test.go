@@ -149,7 +149,7 @@ func scenarioModule(t T, e *Env) {
 	if err := json.Unmarshal([]byte(out), &info); err != nil {
 		t.Fatalf("module info: %v\n%s", err, out)
 	}
-	if info["name"] != "weather" || info["owner"] != "acme" {
+	if info["name"] != e.Name("weather") || info["owner"] != "acme" {
 		t.Fatalf("module info = %v", info)
 	}
 	errOut := e.Fails("", "registry", "module", "create", mod)
