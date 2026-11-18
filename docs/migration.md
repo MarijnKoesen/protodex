@@ -10,7 +10,9 @@ Moving a repository to Protodex touches the registry host in `buf.yaml`,
 - Public dependencies such as `googleapis`: [mirror](mirror.md) them, which
   imports upstream modules with provenance.
 
-Users and organizations must exist first (`protodex owner create`).
+Users and organizations must exist first: create organizations with
+`buf registry organization create` (instance admins) and users with
+`protodex owner create`; see [owners](owners.md#administration-over-the-api).
 
 ## 2. Rename hosts (`protodex migrate-buf`)
 
