@@ -1,0 +1,90 @@
+# SPDX-License-Identifier: Apache-2.0
+# Helm chart e2e on kind (deploy/e2e/README.md): install the chart with the
+# bundled SeaweedFS, run the buf CLI conformance suite against it, then the
+# upgrade, restart and Litestream restore tests. All logic lives in
+# deploy/e2e/e2e.sh (`make kind-e2e`); this workflow only installs tools.
+#
+# Required-check safe: the workflow runs on every PR (no `paths:` filter, which
+# would leave a required check pending forever) and the `kind-e2e` job skips
+# its steps, succeeding, unless the PR touches the paths below. See
+# docs/branch-protection.md.
+name: kind-e2e
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  kind-e2e:
+    name: kind-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      KIND_VERSION: v0.33.0
+      HELM_VERSION: v3.19.0
+      KUBECTL_VERSION: v1.34.1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Tags and the base branch: the upgrade test installs the previous
+          # release (or the merge base) first.
+          fetch-depth: 0
+      - id: changes
+        name: Relevant changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(git diff --name-only "$BASE" HEAD)
+          if printf '%s\n' "$files" | grep -qE '^(deploy/|internal/|cmd/|test/conformance/|go\.(mod|sum)$|Dockerfile$|Makefile$|\.github/workflows/kind-e2e\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No changes under deploy/, internal/, cmd/ or test/conformance/; skipping the kind e2e." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: steps.changes.outputs.run == 'true'
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - if: steps.changes.outputs.run == 'true'
+        uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - if: steps.changes.outputs.run == 'true'
+        name: Install kind and kubectl
+        run: |
+          set -euo pipefail
+          go install "sigs.k8s.io/kind@${KIND_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          url="https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          curl -fsSLo "$RUNNER_TEMP/kubectl" "$url"
+          echo "$(curl -fsSL "$url.sha256")  $RUNNER_TEMP/kubectl" | sha256sum -c -
+          install -D -m 0755 "$RUNNER_TEMP/kubectl" "$HOME/.local/bin/kubectl"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # Prints pods, events and logs if anything fails, then deletes the
+      # cluster.
+      - if: steps.changes.outputs.run == 'true'
+        name: kind e2e
+        run: make kind-e2e
+      - if: always() && steps.changes.outputs.run == 'true'
+        name: Result summary
+        run: |
+          if [ -f .e2e-kind/conformance-report.md ]; then
+            { echo "### Conformance against the kind deployment"; cat .e2e-kind/conformance-report.md; } >> "$GITHUB_STEP_SUMMARY"
+          fi
