@@ -142,7 +142,7 @@ func TestGeneratedCodeCompat(t *testing.T) {
 		e.OK(out, "export", e.Host+"/"+u.Name, "-o", "export")
 		want := protoOnly(readTree(t, upstreamTrees[u.Name]))
 		got := protoOnly(readTree(t, filepath.Join(out, "export")))
-		if diffs := compareGenerated(want, got); len(diffs) > 0 {
+		if diffs := compareTrees(want, got, func(s string) string { return s }); len(diffs) > 0 {
 			t.Errorf("mirror altered the sources of %s (upstream vs mirror):\n%s", u.Name, strings.Join(diffs, "\n"))
 		}
 	}
@@ -348,6 +348,12 @@ func normalizeGenerated(s string) string {
 // compareGenerated returns a description of every difference between two
 // trees (missing, extra or changed files), ignoring version header lines.
 func compareGenerated(want, got map[string]string) []string {
+	return compareTrees(want, got, normalizeGenerated)
+}
+
+// compareTrees is compareGenerated with a custom normalization; sources use
+// the identity so they are compared byte for byte.
+func compareTrees(want, got map[string]string, norm func(string) string) []string {
 	var diffs []string
 	names := map[string]bool{}
 	for p := range want {
@@ -369,8 +375,8 @@ func compareGenerated(want, got map[string]string) []string {
 			diffs = append(diffs, "missing from mirror: "+p)
 		case !wok:
 			diffs = append(diffs, "only in mirror: "+p)
-		case normalizeGenerated(w) != normalizeGenerated(g):
-			diffs = append(diffs, "differs: "+p+"\n"+firstDiff(normalizeGenerated(w), normalizeGenerated(g)))
+		case norm(w) != norm(g):
+			diffs = append(diffs, "differs: "+p+"\n"+firstDiff(norm(w), norm(g)))
 		}
 	}
 	return diffs
@@ -419,5 +425,10 @@ func TestCompareGenerated(t *testing.T) {
 	}
 	if d := compareGenerated(a, map[string]string{"a.pb.go": a["a.pb.go"]}); len(d) != 1 || !strings.Contains(d[0], "missing from mirror: b.pb.go") {
 		t.Fatalf("missing file not reported: %v", d)
+	}
+	src := map[string]string{"a.proto": "// protoc v1\nsyntax = \"proto3\";\n"}
+	chg := map[string]string{"a.proto": "// protoc v2\nsyntax = \"proto3\";\n"}
+	if d := compareTrees(src, chg, func(s string) string { return s }); len(d) != 1 {
+		t.Fatalf("source comparison must be byte-exact: %v", d)
 	}
 }
