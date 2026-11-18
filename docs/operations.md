@@ -28,9 +28,12 @@ Test restores before you need them.
 
 1. Read the release notes.
 2. Back up (above).
-3. Deploy the new image/chart. Helm uses `Recreate`, so expect a short
+3. Stop the server: `migrate` needs the exclusive database lock.
+4. Run `protodex migrate` when the release notes say the schema changed
+   (compose: `docker compose run --rm --no-deps protodex migrate`). Roll back
+   one step with `migrate down`.
+5. Start the new image/chart. Helm uses `Recreate`, so expect a short
    downtime.
-4. Run `protodex migrate` (compose: `docker compose run --rm --no-deps protodex migrate -db /var/lib/protodex/protodex.db`) when the release notes say the schema changed. Roll back one step with `migrate down`.
 
 Protodex is a single-writer system; there is no rolling upgrade.
 

@@ -119,11 +119,11 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		rel, _ := filepath.Rel(opts.Root, path)
 		switch {
 		case isBufYAML(d.Name()):
-			n, err := rewriteFile(path, rel, opts, res)
+			_, needs, err := rewriteFile(path, rel, opts, res)
 			if err != nil {
 				return err
 			}
-			if n > 0 {
+			if needs {
 				updateDirs[filepath.Dir(path)] = true
 			}
 		case isBufGen(d.Name()):
@@ -152,15 +152,22 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 // rewriteFile replaces `from/` with `to/` at the start of module references:
 // list items (deps) and `name:` values. It returns the number of changed lines.
-func rewriteFile(path, rel string, opts Options, res *Result) (int, error) {
+func rewriteFile(path, rel string, opts Options, res *Result) (changed int, needsUpdate bool, err error) {
+	stale := false
 	data, err := os.ReadFile(path) //nolint:gosec // paths come from walking the directory the operator named
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	re := regexp.MustCompile(`^(\s*(?:-\s*|name:\s*)["']?)` + regexp.QuoteMeta(opts.From) + `/`)
+	re := regexp.MustCompile(`^(\s*(?:-\s+)?(?:name:\s*)?["']?)` + regexp.QuoteMeta(opts.From) + `/`)
+	// Files already pointing at the target still need `buf dep update` when a
+	// previous run rewrote them but the update failed.
+	already := regexp.MustCompile(`^\s*(?:-\s+)?(?:name:\s*)?["']?` + regexp.QuoteMeta(opts.To) + `/`)
 	lines := strings.Split(string(data), "\n")
 	n := 0
 	for i, l := range lines {
+		if already.MatchString(l) {
+			stale = true
+		}
 		if !re.MatchString(l) {
 			continue
 		}
@@ -172,13 +179,13 @@ func rewriteFile(path, rel string, opts Options, res *Result) (int, error) {
 	if n > 0 && opts.Apply {
 		info, err := os.Stat(path)
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
 		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), info.Mode().Perm()); err != nil { //nolint:gosec // rewriting the operator's own file in place
-			return 0, err
+			return 0, false, err
 		}
 	}
-	return n, nil
+	return n, n > 0 || stale, nil
 }
 
 func scanPlugins(path, rel, from string, res *Result) error {
@@ -231,9 +238,12 @@ func (r *Result) Report(apply bool) string {
 		}
 	}
 	for _, d := range r.UpdateDirs {
-		if r.Updated {
+		switch {
+		case r.Updated:
 			fmt.Fprintf(&b, "\nran buf dep update in %s\n", d)
-		} else {
+		case apply:
+			fmt.Fprintf(&b, "\nbuf dep update not completed in %s: re-run this command to retry\n", d)
+		default:
 			fmt.Fprintf(&b, "\nwould run buf dep update in %s\n", d)
 		}
 	}

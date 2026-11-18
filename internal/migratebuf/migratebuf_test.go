@@ -139,3 +139,29 @@ func TestValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestNameListItemAndRetryAfterFailedUpdate(t *testing.T) {
+	root := t.TempDir()
+	buf := filepath.Join(root, "buf.yaml")
+	if err := os.WriteFile(buf, []byte("version: v2\nmodules:\n  - name: buf.build/acme/api\n    path: proto\n"), 0o600); err != nil { //nolint:gosec // test
+		t.Fatal(err)
+	}
+	opts := Options{Root: root, From: "buf.build", To: "r.example.com", Apply: true,
+		DepUpdate: func(context.Context, string) error { return os.ErrInvalid }}
+	res, err := Run(context.Background(), opts)
+	if err == nil || res.Updated {
+		t.Fatalf("want update failure, got %v", err)
+	}
+	if !strings.Contains(read(t, buf), "- name: r.example.com/acme/api") {
+		t.Fatal("list-item name not rewritten")
+	}
+	if !strings.Contains(res.Report(true), "re-run") {
+		t.Fatalf("report: %s", res.Report(true))
+	}
+	// Retry: nothing to rewrite, but the update must run again.
+	ran := false
+	opts.DepUpdate = func(context.Context, string) error { ran = true; return nil }
+	if _, err := Run(context.Background(), opts); err != nil || !ran {
+		t.Fatalf("retry: ran=%v err=%v", ran, err)
+	}
+}

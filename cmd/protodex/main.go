@@ -204,7 +204,7 @@ func migrateBuf(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	}
 	res, err := migratebuf.Run(ctx, opts)
 	if res != nil {
-		_, _ = fmt.Fprint(stdout, res.Report(*apply && err == nil))
+		_, _ = fmt.Fprint(stdout, res.Report(*apply))
 	}
 	return err
 }
