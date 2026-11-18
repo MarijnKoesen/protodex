@@ -51,7 +51,7 @@ jobs:
             exit 0
           fi
           files=$(git diff --name-only "$BASE" HEAD)
-          if printf '%s\n' "$files" | grep -qE '^(deploy/|internal/|cmd/|test/conformance/|go\.(mod|sum)$|Dockerfile$|Makefile$|\.github/workflows/kind-e2e\.yml$)'; then
+          if grep -qE '^(deploy/|internal/|cmd/|test/conformance/|go\.(mod|sum)$|Dockerfile$|Makefile$|\.github/workflows/kind-e2e\.yml$)' <<< "$files"; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
