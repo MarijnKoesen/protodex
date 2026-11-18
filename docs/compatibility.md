@@ -161,7 +161,7 @@ in the environment), and the whole matrix runs against it as
 
 ### Remote: a deployed server
 
-The `remote` backend ([`remote_test.go`](../test/conformance/remote_test.go))
+The `remote` backend ([`remote_test.go`](https://github.com/MarijnKoesen/protodex/blob/main/test/conformance/remote_test.go))
 runs the scenarios against an already running protodex instead of an
 in-process one. It skips unless `PROTODEX_CONFORMANCE_REMOTE` (e.g.
 `http://127.0.0.1:30080`) and `PROTODEX_CONFORMANCE_REMOTE_TOKEN` are set; the
@@ -170,7 +170,7 @@ server needs user `admin` owning the token and organization `acme`
 local HTTPS reverse proxy (the CLI only speaks TLS), uses module names with a
 random suffix so scenarios can share the server, and inspects modules, labels
 and commits through the Connect API instead of the store. The
-[kind e2e](../deploy/e2e/README.md) uses it against the Helm chart:
+[kind e2e](https://github.com/MarijnKoesen/protodex/blob/main/deploy/e2e/README.md) uses it against the Helm chart:
 
 ```sh
 PROTODEX_CONFORMANCE_REMOTE=http://127.0.0.1:8080 PROTODEX_CONFORMANCE_REMOTE_TOKEN=pdx_... \

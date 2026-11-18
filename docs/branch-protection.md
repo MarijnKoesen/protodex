@@ -23,7 +23,7 @@ Notes:
   belongs to an organization. Personal-account repositories do not.
 - A check only becomes selectable as "required" after it has run once, so
   apply this after the first CI run on a PR.
-- `kind-e2e` (Helm chart e2e on kind, [deploy/e2e](../deploy/e2e/README.md))
+- `kind-e2e` (Helm chart e2e on kind, [deploy/e2e](https://github.com/MarijnKoesen/protodex/blob/main/deploy/e2e/README.md))
   is not in the list yet. Add it once it has proven stable; see below.
 
 ## kind-e2e and path filters
@@ -45,7 +45,7 @@ inside the job, not a separate job whose failure would make `kind-e2e`
 To make it required, add `{"context": "kind-e2e"}` to the `checks` list
 below. When changing the path list, keep it in the workflow's `changes` step
 (not in `on:`), and keep this section and
-[deploy/e2e/README.md](../deploy/e2e/README.md#ci) in sync.
+[deploy/e2e/README.md](https://github.com/MarijnKoesen/protodex/blob/main/deploy/e2e/README.md#ci) in sync.
 
 ## Applying it
 
