@@ -104,7 +104,7 @@ error responses.
 
 ## Generated-code compatibility of mirrors
 
-[`gencompat_test.go`](../test/conformance/gencompat_test.go) checks that the
+`test/conformance/gencompat_test.go` checks that the
 mirrored modules (see [mirror.md](mirror.md)) are transparent: it imports the
 `googleapis/googleapis` and `bufbuild/protovalidate` pins of `mirror.yaml`
 into protodex, then runs `buf generate --include-imports` for a fixture
