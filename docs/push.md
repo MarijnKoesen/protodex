@@ -6,7 +6,7 @@ and `CommitService`, so `buf push` works with the stock CLI:
 ```sh
 buf push                 # in a directory whose buf.yaml names registry.example.com/acme/weather
 buf push --label=v1
-buf registry commit info registry.example.com/acme/weather:<commit>
+buf registry module commit info registry.example.com/acme/weather:<commit>
 ```
 
 The module must exist (`buf registry module create`); push does not create it.

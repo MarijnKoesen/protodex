@@ -47,7 +47,7 @@ computed from content.
 ## 4. Log in
 
 ```sh
-buf registry login registry.example.com --username <user> --token-stdin
+buf registry login registry.example.com --token-stdin
 ```
 
 ## Remote to local plugin mapping
