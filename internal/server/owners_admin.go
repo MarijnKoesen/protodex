@@ -103,6 +103,9 @@ func (s *organizationService) CreateOrganizations(ctx context.Context, req *conn
 			if v.Visibility != nil && v.GetVisibility() != ownerv1.OrganizationVisibility_ORGANIZATION_VISIBILITY_PUBLIC {
 				return errUnsupportedField("organization visibility other than public")
 			}
+			if v.GetVerificationStatus() > ownerv1.OrganizationVerificationStatus_ORGANIZATION_VERIFICATION_STATUS_UNVERIFIED {
+				return errUnsupportedField("organization verification")
+			}
 			o, err := createOwner(ctx, q, owner.Organization, v.GetName(), v.GetDescription(), v.GetUrl())
 			if err != nil {
 				return err

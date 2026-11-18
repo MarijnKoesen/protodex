@@ -298,6 +298,10 @@ func TestOrganizationAdministration(t *testing.T) {
 	_, err = c.CreateOrganizations(ctx, connect.NewRequest(&ownerv1.CreateOrganizationsRequest{Values: []*ownerv1.CreateOrganizationsRequest_Value{{Name: "p", Visibility: &private}}}))
 	wantCode(t, err, connect.CodeUnimplemented)
 
+	_, err = c.CreateOrganizations(ctx, connect.NewRequest(&ownerv1.CreateOrganizationsRequest{Values: []*ownerv1.CreateOrganizationsRequest_Value{
+		{Name: "v", VerificationStatus: ownerv1.OrganizationVerificationStatus_ORGANIZATION_VERIFICATION_STATUS_VERIFIED}}}))
+	wantCode(t, err, connect.CodeUnimplemented)
+
 	url := "https://new.example"
 	up, err := c.UpdateOrganizations(ctx, connect.NewRequest(&ownerv1.UpdateOrganizationsRequest{Values: []*ownerv1.UpdateOrganizationsRequest_Value{
 		{OrganizationRef: ref("acme")[0], Url: &url}}}))
