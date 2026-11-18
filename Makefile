@@ -136,3 +136,9 @@ clean:
 .PHONY: help
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "%-18s %s\n", $$1, $$2}'
+
+.PHONY: docs
+docs: ## Build the docs site with strict link checking (pip: mkdocs, mkdocs-material)
+	python3 -m venv $(BIN_DIR)/docs-venv
+	$(BIN_DIR)/docs-venv/bin/pip install -q -r requirements-docs.txt
+	$(BIN_DIR)/docs-venv/bin/mkdocs build --strict -d $(BIN_DIR)/site

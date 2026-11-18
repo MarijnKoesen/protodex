@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -21,6 +22,7 @@ import (
 	"github.com/marijnkoesen/protodex/internal/auth"
 	"github.com/marijnkoesen/protodex/internal/blob/fsblob"
 	"github.com/marijnkoesen/protodex/internal/config"
+	"github.com/marijnkoesen/protodex/internal/migratebuf"
 	"github.com/marijnkoesen/protodex/internal/mirror"
 	"github.com/marijnkoesen/protodex/internal/module"
 	"github.com/marijnkoesen/protodex/internal/oidcauth"
@@ -44,6 +46,8 @@ commands:
   mirror     import upstream modules (googleapis, ...) per mirror.yaml, or
              show their provenance
   migrate    apply (or "down": roll back one) database migrations
+  migrate-buf  rewrite registry hosts in a repository's buf.yaml files, report
+             remote plugins and re-run "buf dep update" (dry run by default)
   version    print the version
 `
 
@@ -109,6 +113,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return bootstrap(ctx, args[1:], os.Getenv, stdout, stderr)
 	case "migrate":
 		return migrate(ctx, args[1:], os.Getenv, stdout, stderr)
+	case "migrate-buf":
+		return migrateBuf(ctx, args[1:], stdout, stderr)
 	case "mirror":
 		return mirrorCmd(ctx, args[1:], os.Getenv, stdout, stderr)
 	case "owner":
@@ -168,6 +174,41 @@ func migrate(ctx context.Context, args []string, getenv func(string) string, std
 // generated token is printed once to stdout and never logged; a supplied one
 // is not echoed. The instance organization and mirror owners are created if
 // missing; rerunning is safe.
+// migrateBuf implements `protodex migrate-buf -to host [-from host] [-apply] [dir]`.
+func migrateBuf(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("migrate-buf", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	from := fs.String("from", "buf.build", "registry host to replace")
+	to := fs.String("to", "", "Protodex host[:port] to use instead (required)")
+	apply := fs.Bool("apply", false, "write changes and run buf dep update (default: dry run)")
+	bufBin := fs.String("buf", "buf", "buf binary used for `dep update`")
+	skipUpdate := fs.Bool("skip-dep-update", false, "do not run buf dep update")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 1 {
+		return errors.New("migrate-buf takes at most one directory")
+	}
+	root := "."
+	if fs.NArg() == 1 {
+		root = fs.Arg(0)
+	}
+	opts := migratebuf.Options{Root: root, From: *from, To: *to, Apply: *apply}
+	if !*skipUpdate {
+		opts.DepUpdate = func(ctx context.Context, dir string) error {
+			cmd := exec.CommandContext(ctx, *bufBin, "dep", "update") //nolint:gosec // the buf binary is chosen by the operator running this CLI
+			cmd.Dir = dir
+			cmd.Stdout, cmd.Stderr = stdout, stderr
+			return cmd.Run()
+		}
+	}
+	res, err := migratebuf.Run(ctx, opts)
+	if res != nil {
+		_, _ = fmt.Fprint(stdout, res.Report(*apply))
+	}
+	return err
+}
+
 func bootstrap(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("bootstrap", flag.ContinueOnError)
 	fs.SetOutput(stderr)

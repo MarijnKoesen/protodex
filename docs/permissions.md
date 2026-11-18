@@ -25,7 +25,7 @@ Roles come from:
 - `protodex owner create [-role viewer|member|admin] user NAME...` (default
   `member`) and `protodex owner role USER ROLE`.
 - OIDC login: the role derived from the IdP's groups (`group_roles`,
-  `default_role`; see the [README](../README.md#oidc-login)) replaces the
+  `default_role`; see the [README](https://github.com/MarijnKoesen/protodex/blob/main/README.md#oidc-login)) replaces the
   user's role on **every** login, so for OIDC users the IdP is the source of
   truth.
 

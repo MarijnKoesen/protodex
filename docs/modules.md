@@ -56,7 +56,7 @@ buf registry module label list|info|archive|unarchive registry.example.com/acme/
 
 `ListLabelHistory` returns `Unimplemented` (label history is not recorded
 yet). Only `module.v1` is served: no captured CLI command uses `v1beta1`
-(see [open-questions.md](behavior-spec/open-questions.md#3-minimum-cli-version-and-v1-vs-v1beta1---partial)).
+(see [open-questions.md](behavior-spec/open-questions.md#3-minimum-cli-version-and-v1-vs-v1beta1-partial)).
 
 ## CLI test
 

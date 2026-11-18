@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+# Publishes the documentation site from main to the gh-pages branch.
+# (Enable GitHub Pages: Settings -> Pages -> Deploy from branch gh-pages.)
+name: docs-deploy
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", "mkdocs.yml", "requirements-docs.txt"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true
+      - run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -q -r requirements-docs.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          .venv/bin/mkdocs gh-deploy --force --strict

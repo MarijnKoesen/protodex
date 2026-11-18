@@ -6,9 +6,9 @@ Policy:
 - At least 1 approving review, including a CODEOWNER; stale approvals are
   dismissed on new commits.
 - Branch must be up to date and all required checks must pass:
-  `build-test`, `lint`, `generated`, `licenses`, `proto`, `docker`, `helm`,
+  `build-test`, `docs`, `lint`, `generated`, `licenses`, `proto`, `docker`, `helm`,
   `security`, `dependency-review`, `dco`, `pr-title`
-  (described in [CONTRIBUTING.md](../CONTRIBUTING.md#required-status-checks)).
+  (described in [CONTRIBUTING.md](https://github.com/MarijnKoesen/protodex/blob/main/CONTRIBUTING.md#required-status-checks)).
 - No force pushes or branch deletion. Administrators are included.
 - Squash merge only, so the Conventional Commits PR title becomes the commit
   message.
@@ -35,7 +35,7 @@ gh api -X PUT repos/marijnkoesen/protodex/branches/main/protection \
   "required_status_checks": {
     "strict": true,
     "checks": [
-      {"context": "build-test"}, {"context": "lint"}, {"context": "generated"},
+      {"context": "build-test"}, {"context": "docs"}, {"context": "lint"}, {"context": "generated"},
       {"context": "licenses"}, {"context": "proto"}, {"context": "docker"},
       {"context": "helm"}, {"context": "security"},
       {"context": "dependency-review"}, {"context": "dco"},

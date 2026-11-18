@@ -16,7 +16,7 @@ What exists today:
   [push.md](../push.md)).
 - `proto/` does not contain `policy/v1`. The vendored subset is pinned to one
   `registry-proto` commit and only changes by copying files from upstream
-  (see [proto/README.md](../../proto/README.md)). Nothing in the current
+  (see [proto/README.md](https://github.com/MarijnKoesen/protodex/blob/main/proto/README.md)). Nothing in the current
   repository, plan or behaviour spec depends on it.
 - The dependencies #26 (roles, visibility, contributors) and #12 are done, so
   per-module authorization is available if policy is ever enforced.
