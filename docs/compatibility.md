@@ -125,6 +125,28 @@ server's request log for that scenario: every `buf` invocation interleaved
 with the access log (procedure, Connect code, duration) and the bodies of
 error responses.
 
+## Generated-code compatibility of mirrors
+
+`test/conformance/gencompat_test.go` checks that the
+mirrored modules (see [mirror.md](mirror.md)) are transparent: it imports the
+`googleapis/googleapis` and `bufbuild/protovalidate` pins of `mirror.yaml`
+into protodex, then runs `buf generate --include-imports` for a fixture
+module (`test/conformance/testdata/gencompat`) once against the mirrored
+modules and once against clones of the upstream repositories at the same
+pins. The Go (`protoc-gen-go`, `protoc-gen-go-grpc`) and TypeScript
+(`protoc-gen-es`) output must be identical apart from generator/compiler
+version header lines, and every mirrored `.proto` must equal upstream (path
+and bytes, so `go_package` and all options). Plugins are local and pinned
+(`protoc-gen-go` follows `go.mod`; the others are constants in the test).
+
+It needs the network, so it runs only with `PROTODEX_CONFORMANCE_GENCOMPAT=1`
+(the `generated-code compatibility` job of the conformance workflow).
+`PROTODEX_CONFORMANCE_GENCOMPAT_FAULT=go_package` makes the mirror alter a
+`go_package`; the test must then fail, and the workflow checks that it does.
+The test mirrors a small self-contained subset of googleapis (the whole tree
+does not build as one module because `google/cloud/*` imports protos that are
+not in the repository).
+
 ## Store backends
 
 The suite is parametrised by metadata store backend

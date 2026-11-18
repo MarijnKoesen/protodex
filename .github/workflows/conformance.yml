@@ -79,3 +79,38 @@ jobs:
           path: conformance-${{ matrix.buf }}.md
           if-no-files-found: ignore
           retention-days: 14
+
+  # Generated-code compatibility (test/conformance/gencompat_test.go): Go and
+  # TypeScript code generated from the mirrored googleapis/protovalidate must
+  # equal code generated from the upstream repositories directly.
+  gencompat:
+    name: generated-code compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - name: Resolve newest supported buf
+        id: buf
+        run: echo "version=$(go run ./test/conformance/cmd/fetchbuf versions | tr ' ' '\n' | tail -n 1)" >> "$GITHUB_OUTPUT"
+      - name: Generated code matches upstream
+        env:
+          PROTODEX_CONFORMANCE_GENCOMPAT: "1"
+          PROTODEX_CONFORMANCE_BUF_VERSIONS: ${{ steps.buf.outputs.version }}
+        run: go test -count=1 -timeout 15m -v -run 'TestGeneratedCodeCompat|TestCompareGenerated' ./test/conformance/
+      # The test must catch a mirror that alters a go_package.
+      - name: Altered go_package is detected
+        env:
+          PROTODEX_CONFORMANCE_GENCOMPAT: "1"
+          PROTODEX_CONFORMANCE_GENCOMPAT_FAULT: go_package
+          PROTODEX_CONFORMANCE_BUF_VERSIONS: ${{ steps.buf.outputs.version }}
+        run: |
+          if go test -count=1 -timeout 15m -run TestGeneratedCodeCompat ./test/conformance/ > fault.log 2>&1; then
+            cat fault.log; echo "test passed with a mirror-altered go_package"; exit 1
+          fi
+          grep -q "mirror altered generated go code" fault.log || { cat fault.log; echo "failed for another reason"; exit 1; }
